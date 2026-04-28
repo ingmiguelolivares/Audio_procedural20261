@@ -1,0 +1,396 @@
+using System.Collections; 
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+// Esta clase define un oscilador (Osc) que genera distintas formas de onda (Sine, Square, Sawtooth, Triangle, SA).
+// Se encarga de reproducir audio en Unity usando un AudioSource y permite configurar parámetros
+// como la frecuencia, la octava, el número de armónicos, el nivel de volumen y una envolvente ADSR.
+public class Osc : MonoBehaviour
+{
+    // Frecuencia de muestreo (samples por segundo).
+    float FM = 44100f;
+    // Frecuencia base de la forma de onda que se va a generar.
+    public float frecuencia = 0, tremLFOf = 0f, LFO2F = 0f;
+    // Octava sobre la que se va a calcular la frecuencia final de la nota.
+    public int Octava = 4;
+    // Número de armónicos que se usarán en la forma de onda SA.
+    public int Narmonicos;
+    // Nivel de amplitud o volumen.
+    public float Level;
+    // Componente de audio de Unity que reproducirá el sonido generado.
+    public AudioSource OscAudio;
+    // Diccionario para almacenar valores calculados de la envolvente (ADSR) en cada frame, evitando cálculos repetidos.
+    private Dictionary<int, float> adsrCache = new Dictionary<int, float>();
+    // Bandera para indicar si se actualizó la envolvente ADSR (para limpiar la caché si es necesario).
+    private bool adsrUpdated = true;
+    // Indica si se utilizará una tabla de ondas (wavetable) en lugar de la generación de forma de onda directa.
+    private bool useWavetable = false;
+    // Arreglo que contendrá los valores precalculados de la forma de onda cuando se use wavetable.
+    private float[] wavetable;
+    // Tamaño de la tabla de ondas.
+    private const int wavetableSize = 2048;
+    // Variables para manejar algún detune o desafinación con el tiempo (no implementado en detalle en este código).
+    float detuneTime = 0f;
+    public int detuneFrames = 0;
+    
+     public Slider TremLFOFSl;
+
+    // Enum que define los tipos de forma de onda soportados: Sine, Square, Sawtooth, Triangle, SA (sumatoria de armónicos).
+    public enum WaveFormType
+    {
+        Sine,
+        Square,
+        Sawtooth,
+        Triangle,
+        SA,
+        WhiteNoise
+    }
+
+    // Indica qué forma de onda se está usando actualmente.
+    public WaveFormType FormType = WaveFormType.Sine;
+
+    // Arreglo que define los niveles de amplitud para cada armónico en la forma de onda SA.
+    public float[] AmplitudesLv = new float[10];
+
+    // Se llama una sola vez antes de que empiece la ejecución.
+    void Awake()
+    {
+        // Se obtiene o agrega el componente de audio al GameObject.
+        OscAudio = gameObject.GetComponent<AudioSource>();
+        // Se configura el AudioSource para que sea totalmente 2D (spatialBlend = 0).
+        OscAudio.spatialBlend = 0;
+        // Genera la tabla de onda (wavetable) al inicio.
+        GenerateWavetable();
+        
+    }
+
+   
+    // Actualiza el nivel de volumen.
+    public void UpdateVolume(float value)
+    {
+        Level = value;
+    }
+    // Cambia la octava.
+    public void OctaveChange(int value) {
+        Octava = value;
+    }
+    // Cambia el tipo de forma de onda que se generará.
+    public void WaveFormChange(WaveFormType tipo)
+    {
+        FormType = tipo;
+    }
+    // Cambia la cantidad de armónicos (para la forma de onda SA).
+    public void ArmonicosChange(int value) {
+        Narmonicos = value;
+    }
+    // Cambia la amplitud de cada armónico en el arreglo AmplitudesLv.
+    public void AmplitudesChange(int i, float value)
+    {
+        AmplitudesLv[i] = value;
+    }
+
+    // Genera una onda seno con frecuencia f en un instante de tiempo t.
+    float SineWave(float f, int t)
+    {
+        return Mathf.Sin(2 * Mathf.PI * f * t / FM);
+    }
+    // Genera un componente seno para la forma de onda SA, multiplicado por su amplitud A y el armónico n.
+    float SineWaveSA(float f, int t, float A, int n)
+    {
+        return Mathf.Sin(2 * Mathf.PI * n * f * t / FM) * A;
+    }
+    // Genera una onda cuadrada con frecuencia f para un instante de tiempo t.
+    float SquareWave(float f, int t)
+    {
+        return Mathf.Sign(Mathf.Sin(2 * Mathf.PI * f * t / FM));
+    }
+    // Función auxiliar para realizar una interpolación lineal entre dos puntos (x0, y0) y (x1, y1) dado un valor x.
+    float LinearInterpolation(float x, float x0, float x1, float y0, float y1)
+    {
+        float y = y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+        return y;
+    }
+    // Genera una onda triangular para una frecuencia f en un índice Index.
+    float TriangleWave(float f, int Index)
+    {
+        // Período de la onda (número de samples que completan un ciclo).
+        var T = FM / f;
+        // Fase actual dentro de ese período.
+        var t = Index % T;
+
+        // Puntos de cambio para armar la forma triangular.
+        float t1 = 0;
+        float t2 = T / 4f;
+        float t3 = 3 * T / 4f;
+        float t4 = T;
+
+        // Valores correspondientes a la amplitud en cada uno de esos puntos.
+        float x1 = 0f, x2 = 1f, x3 = -1f, x4 = 0f;
+
+        // Sección 1: de 0 a 1.
+        if (t <= t2)
+            return LinearInterpolation(t, t1, t2, x1, x2);
+        // Sección 2: de 1 a -1.
+        else if (t <= t3)
+            return LinearInterpolation(t, t2, t3, x2, x3);
+        // Sección 3: de -1 a 0.
+        else
+            return LinearInterpolation(t, t3, t4, x3, x4);
+    }
+
+    // Genera una onda de sierra (sawtooth) para una frecuencia f en un índice Index.
+    float SawtoothWave(float f, int Index)
+    {
+        var T = FM / f;
+        var t = Index % T;
+
+        float t1 = 0;
+        float t2 = T;
+
+        // Valores de amplitud: va de 1 a -1 a lo largo del período.
+        float x1 = 1f, x2 = -1f;
+
+        return LinearInterpolation(t, t1, t2, x1, x2);
+    }
+
+    // Genera la forma de onda SA (sumatoria de armónicos) para una frecuencia f, en el instante t, usando Narmonicos.
+    float SA(float f, int t, int Armonicos)
+    {
+        float x = 0f;
+        // Se suman los armónicos multiplicando por las amplitudes definidas en AmplitudesLv.
+        for (int n = 1; n <= Armonicos; n++)
+        {
+            float A = AmplitudesLv[n-1];
+            x += SineWaveSA(f, t, A, n);
+        }
+        // Se divide por el número de armónicos para normalizar la señal.
+        return x / Armonicos;
+    }
+
+    private static System.Random rng = new System.Random();
+    float WhiteNoise(int i) {
+        return (float)rng.NextDouble() * 2f - 1f;
+    }
+
+    // Genera o regenera la tabla de ondas (wavetable) en función del tipo de forma de onda actual (FormType).
+    public void GenerateWavetable()
+    {
+        wavetable = new float[wavetableSize];
+        for (int i = 0; i < wavetableSize; i++)
+        {
+            // El cálculo de "phase" no se usa directamente aquí, pero sirve de referencia.
+            float phase = 2 * Mathf.PI * i / wavetableSize;
+            // Frecuencia base para cada muestra en la wavetable.
+            var f = FM / wavetableSize;
+            
+            switch (FormType)
+            {
+                case WaveFormType.Sine:
+                    wavetable[i] =  SineWave(f, i);
+                    break;
+                case WaveFormType.Square:
+                    wavetable[i] = SquareWave(f, i);
+                    break;
+                case WaveFormType.Sawtooth:
+                    wavetable[i] = SawtoothWave(f, i);
+                    break;
+                case WaveFormType.Triangle:
+                    wavetable[i] = TriangleWave(f, i);
+                    break;
+                case WaveFormType.SA:
+                    wavetable[i] = SA(f, i, Narmonicos);
+                    break;
+                case WaveFormType. WhiteNoise:
+                    wavetable[i] = WhiteNoise(i);
+                    break;
+            }
+        }
+    }
+
+    // Obtiene un valor de la tabla de ondas según la frecuencia y el índice actual.
+    private float GetWavetableSample(int index, float frequency)
+    {
+        // Se calcula la posición en la tabla en función de la frecuencia y el número de muestras acumuladas.
+        int wavetableIndex = Mathf.RoundToInt((index * frequency / FM) * wavetableSize) % wavetableSize;
+        return wavetable[wavetableIndex];
+    }
+
+    // Activa o desactiva el uso de la tabla de ondas y regenera la tabla.
+    public void ToggleWavetable(bool value)
+    {
+        useWavetable = value;
+        GenerateWavetable(); // Se regenera la wavetable al activar o desactivar para reflejar el cambio.
+    }
+
+    // Parámetros de la envolvente ADSR (Attack, Decay, Sustain, Release).
+    public float A = 5;
+    public float D = 5;
+    public float S = 5;
+    public float SL = 0.7f; // Sustain Level.
+    public float R = 5;
+    // Limpia la caché de ADSR cuando hay cambios en los valores, para forzar un recálculo.
+    public void UpdateADSR()
+    {
+        adsrCache.Clear();
+        adsrUpdated = true;
+    }
+    // Actualiza el valor de Attack.
+    public void UpdateAttack(int value)
+    {
+        A = value;
+        UpdateADSR();
+    }
+    // Actualiza el valor de Decay.
+    public void UpdateDecay(int value)
+    {
+        D = value;
+        UpdateADSR();
+    }
+    // Actualiza el valor de Sustain.
+    public void UpdateSustain(int value)
+    {
+        S = value;
+        UpdateADSR();
+    }
+    // Actualiza el nivel de Sustain (porcentaje de la amplitud que se mantiene tras el Decay).
+    public void UpdateSustainLevel(float value)
+    {
+        SL = value;
+        UpdateADSR();
+    }
+    // Actualiza el valor de Release.
+    public void UpdateRelease(int value)
+    {
+        R = value;
+        UpdateADSR();
+    }
+
+    // Calcula el factor ADSR (envolvente) para un tiempo dado (t en samples).
+    float getADSR(int t)
+    {
+        // Si hubo un cambio en ADSR, se borra la caché para recalcular.
+        if (adsrUpdated)
+        {
+            adsrCache.Clear();
+            adsrUpdated = false;
+        }
+
+        // Si el valor de ADSR en el tiempo t ya fue calculado, lo devolvemos directamente.
+        if (adsrCache.TryGetValue(t, out float value))
+            return value;
+        else
+        {
+            // Se convierten los milisegundos (A, D, S, R) a samples multiplicando por FM (frecuencia de muestreo).
+            int Attack = Mathf.RoundToInt((A / 1000f) * FM);
+            int Decay = Mathf.RoundToInt((D / 1000f) * FM);
+            int Sustain = Mathf.RoundToInt((S / 1000f) * FM);
+            int Release = Mathf.RoundToInt((R / 1000f) * FM);
+
+            // Fase de Attack: sube desde 0 hasta 1.
+            if (t < Attack)
+                value = (float)t / Attack;
+            // Fase de Decay: desciende de 1 hasta SL (Sustain Level).
+            else if (t < Decay)
+                value = Mathf.Lerp(1f, SL, (float)(t - Attack) / (Decay - Attack));
+            // Fase de Sustain: se mantiene en SL.
+            else if (t < Sustain)
+                value = SL;
+            // Fase de Release (no se detalla aquí, se deja en 0).
+            else
+                value = 0.0000001f;
+
+            // Almacena el resultado en la caché para no recalcular en la próxima lectura.
+            adsrCache[t] = value;
+            return value;
+        }
+    }
+
+    // Se activa la reproducción (KeyboardDown) de una nota en función de su nombre (C, D, E, etc.).
+    public void KeyboardDown(string Note)
+    {
+        // Se asigna frecuencia según la nota y la octava.
+        if (Note == "C" || Note == "c") frecuencia = 16.3516f * Mathf.Pow(2, Octava);
+        else if (Note == "C#" || Note == "c#") frecuencia = 17.3239f * Mathf.Pow(2, Octava);
+        else if (Note == "D" || Note == "d") frecuencia = 18.3540f * Mathf.Pow(2, Octava);
+        else if (Note == "D#" || Note == "d#") frecuencia = 19.4454f * Mathf.Pow(2, Octava);
+        else if (Note == "E" || Note == "e") frecuencia = 20.6017f * Mathf.Pow(2, Octava);
+        else if (Note == "F" || Note == "f") frecuencia = 21.8268f * Mathf.Pow(2, Octava);
+        else if (Note == "F#" || Note == "f#") frecuencia = 23.1246f * Mathf.Pow(2, Octava);
+        else if (Note == "G" || Note == "g") frecuencia = 24.4997f * Mathf.Pow(2, Octava);
+        else if (Note == "G#" || Note == "g#") frecuencia = 25.9565f * Mathf.Pow(2, Octava);
+        else if (Note == "A" || Note == "a") frecuencia = 27.5f * Mathf.Pow(2, Octava);
+        else if (Note == "A#" || Note == "a#") frecuencia = 29.1353f * Mathf.Pow(2, Octava);
+        else if (Note == "B" || Note == "b") frecuencia = 30.3677f * Mathf.Pow(2, Octava);
+        else if (Note == "C2" || Note == "c2") frecuencia = 2 * 16.3516f * Mathf.Pow(2, Octava);
+
+        // Se inicia la reproducción del AudioSource.
+        OscAudio.Play();
+    }
+
+    // Detiene la reproducción de la nota (KeyboardUp).
+    public void KeyboardUp()
+    {
+        OscAudio.Stop();
+        TimeIndex = 0;
+        frecuencia = 0;
+    }
+
+    // Variables auxiliares para el cálculo en OnAudioFilterRead.
+    float X = 0;
+    int TimeIndex = 0;
+
+    // Esta función se llama cuando Unity necesita rellenar el buffer de audio. Aquí generamos los samples.
+    private void OnAudioFilterRead(float[] data, int channels)
+    {
+        // Recorremos los samples del buffer de audio.
+        for (int i = 0; i < data.Length; i += channels)
+        {
+            // Calculamos la envolvente ADSR para el sample actual.
+            float E = getADSR(TimeIndex++);
+            float LFO1 = 1f;
+            if (tremLFOf!= 0) LFO1 = SineWave( tremLFOf, TimeIndex);
+
+            float LFO2 = 0.5f + SineWave( LFO2F , TimeIndex)/2.0f;
+
+            // Dependiendo de si se usa la wavetable o la generación directa, obtenemos el valor de la onda.
+            float X = useWavetable ? GetWavetableSample(TimeIndex, frecuencia) 
+                                   : GenerateWaveSample(FormType, frecuencia , TimeIndex);
+
+            // Dependiendo de si se usa la wavetable o la generación directa, obtenemos el valor de la onda.
+            float X1 = useWavetable ? GetWavetableSample(TimeIndex + detuneFrames, frecuencia) 
+                                   : GenerateWaveSample(FormType, frecuencia, TimeIndex + detuneFrames);
+
+            // Se asigna el valor calculado al canal izquierdo (data[i]).
+            data[i] = Level * (X+X1) * E * LFO1;
+            // Si hay dos canales (estéreo), se repite para el canal derecho.
+            if (channels == 2) data[i + 1] = Level * (X+X1) * E * LFO1 ;
+
+            // Se incrementa el índice de tiempo para el siguiente sample.
+            TimeIndex++;
+        }
+    }
+
+    // Función que selecciona qué forma de onda generar de manera directa, sin wavetable.
+    private float GenerateWaveSample(WaveFormType type, float f, int t)
+    {
+        switch (type)
+        {
+            case WaveFormType.Sine:
+                return SineWave(frecuencia, TimeIndex);
+            case WaveFormType.Square:
+                return SquareWave(frecuencia, TimeIndex);
+            case WaveFormType.Sawtooth:
+                return SawtoothWave(frecuencia, TimeIndex);
+            case WaveFormType.Triangle:
+                return TriangleWave(frecuencia, TimeIndex);
+            case WaveFormType.SA:
+                return SA(frecuencia, TimeIndex, Narmonicos);
+            case WaveFormType. WhiteNoise:
+                return  WhiteNoise(TimeIndex);       
+            default:
+                return 0f;
+        }
+    }
+}

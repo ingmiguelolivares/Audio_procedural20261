@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: c37d84793be0806408c713739d3733d6
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 228998
+  packageName: DryWetMIDI.Nativeless
+  packageVersion: 8.0.2
+  assetPath: Assets/Melanchall/DryWetMIDI.Nativeless/Demo/DemoSceneSettings.lighting
+  uploadId: 776550

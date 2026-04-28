@@ -1,0 +1,419 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+/// <summary>
+/// Versión optimizada de un oscilador que genera distintas formas de onda (seno, cuadrada, sierra, triángulo, SA, ruido blanco).
+/// Incluye ADSR, detune, y opcional uso de wavetable.
+/// </summary>
+[RequireComponent(typeof(AudioSource))]
+public class Osc : MonoBehaviour
+{
+    // -----------------------------------------------------
+    // =================== Variables Generales ==============
+    // -----------------------------------------------------
+
+    // Frecuencia de muestreo (samples por segundo).
+    private const float SAMPLE_RATE = 44100f;
+
+    // Frecuencia base de la nota actual en Hz.
+    [Tooltip("Frecuencia base de la nota (se actualiza al presionar una tecla).")]
+    public float frecuencia = 0f;
+
+    // Octava para el cálculo de la nota.
+    [Range(0, 8)]
+    public int Octava = 4;
+
+    // Volumen global.
+    [Range(0f, 1f)]
+    public float Level = 0.5f;
+
+    // Número de armónicos usados en la onda SA.
+    [Range(1, 10)]
+    public int Narmonicos = 1;
+
+    // Amplitudes de cada armónico (solo se usan en SA).
+    public float[] AmplitudesLv = new float[10];
+
+    // Cantidad de samples de desfase para el detune.
+    [Tooltip("Desfase de samples para segunda onda (detune).")]
+    public int detuneFrames = 0;
+
+    // Fase de la onda principal y fase de la onda “detune” (en radianes).
+    private float phase = 0f;
+    private float phaseDetune = 0f;
+
+    // Uso de wavetable o generación directa.
+    [Tooltip("Activar para usar wavetable en vez de generación directa.")]
+    public bool useWavetable = false;
+
+    // Tabla de onda precalculada (cuando useWavetable = true).
+    private float[] wavetable;
+    private const int WAVETABLE_SIZE = 2048;
+
+    // Fuente de audio.
+    private AudioSource _audioSource;
+
+    // Índice de tiempo en samples para la envolvente (ADSR).
+    private int sampleIndexADSR = 0;
+
+    // Diccionario para cachear los valores de ADSR, si se desea.
+    private Dictionary<int, float> adsrCache = new Dictionary<int, float>();
+    private bool adsrUpdated = true;
+
+    // -----------------------------------------------------
+    // ============= Parámetros de la envolvente ============
+    // -----------------------------------------------------
+
+    [Header("ADSR (en ms)")]
+    public float A = 5f;      // Attack en ms
+    public float D = 5f;      // Decay en ms
+    public float S = 5f;      // Sustain en ms
+    [Range(0f, 1f)]
+    public float SL = 0.7f;   // Nivel de Sustain (0 a 1)
+    public float R = 5f;      // Release en ms
+
+    // -----------------------------------------------------
+    // =============== Tipos de forma de onda ==============
+    // -----------------------------------------------------
+    public enum WaveFormType
+    {
+        Sine,
+        Square,
+        Sawtooth,
+        Triangle,
+        SA,
+        WhiteNoise
+    }
+
+    [Tooltip("Tipo de forma de onda a generar.")]
+    public WaveFormType FormType = WaveFormType.Sine;
+
+    // -----------------------------------------------------
+    // =================== Métodos Unity ====================
+    // -----------------------------------------------------
+
+    private void Awake()
+    {
+        // Componente de AudioSource.
+        _audioSource = GetComponent<AudioSource>();
+        _audioSource.spatialBlend = 0f;  // Completamente 2D
+
+        // Generamos la wavetable inicial (en caso de ser usada).
+        GenerateWavetable();
+    }
+
+    private void OnAudioFilterRead(float[] data, int channels)
+    {
+        // Paso de fase por sample.
+        //   Incremento en radianes = 2π * (frecuencia / SampleRate)
+        float increment = 2f * Mathf.PI * (frecuencia / SAMPLE_RATE);
+        float incrementDetune = increment; // si quisieras detunear con otra frecuencia, ajustar aquí
+
+        for (int i = 0; i < data.Length; i += channels)
+        {
+            // Cálculo de la envolvente para este sample.
+            float envelope = GetADSR(sampleIndexADSR);
+
+            // Generamos muestra de la primera onda.
+            float sampleA = useWavetable ?
+                GetWavetableSample(phase) :
+                GenerateWaveSample(FormType, phase);
+
+            // Generamos muestra de la onda "detune".
+            float sampleB = 0f;
+            if (detuneFrames > 0)
+            {
+                sampleB = useWavetable ?
+                    GetWavetableSample(phaseDetune) :
+                    GenerateWaveSample(FormType, phaseDetune);
+            }
+
+            // Mezclamos ambas.
+            float sampleValue = (sampleA + sampleB) * 0.5f; // Mezcla simple, ajustable si se desea
+            sampleValue *= Level * envelope;
+
+            // Asignamos la muestra a los canales.
+            data[i] = sampleValue;
+            if (channels == 2) data[i + 1] = sampleValue;
+
+            // Actualizamos la fase.
+            phase += increment;
+            phaseDetune += incrementDetune;
+
+            // Incrementamos el índice de ADSR (solo 1 vez por muestra).
+            sampleIndexADSR++;
+        }
+    }
+
+    // -----------------------------------------------------
+    // ============= Funciones de configuración ============
+    // -----------------------------------------------------
+
+    public void UpdateVolume(float value)
+    {
+        Level = value;
+    }
+
+    public void OctaveChange(int value)
+    {
+        Octava = value;
+    }
+
+    public void WaveFormChange(WaveFormType tipo)
+    {
+        FormType = tipo;
+        GenerateWavetable(); // Actualizamos wavetable si se usa
+    }
+
+    public void ArmonicosChange(int value)
+    {
+        Narmonicos = value;
+        GenerateWavetable();
+    }
+
+    public void AmplitudesChange(int i, float value)
+    {
+        if (i >= 0 && i < AmplitudesLv.Length)
+        {
+            AmplitudesLv[i] = value;
+            GenerateWavetable();
+        }
+    }
+
+    public void ToggleWavetable(bool value)
+    {
+        useWavetable = value;
+        GenerateWavetable();
+    }
+
+    // -----------------------------------------------------
+    // ============= Generación Wavetable ==================
+    // -----------------------------------------------------
+    private void GenerateWavetable()
+    {
+        wavetable = new float[WAVETABLE_SIZE];
+        // Frecuencia base con la que llenamos la tabla (no importa mucho el valor exacto,
+        // ya que luego la indexamos proporcionalmente en tiempo real).
+        float baseFreq = SAMPLE_RATE / WAVETABLE_SIZE;
+        float increment = 2f * Mathf.PI * (baseFreq / SAMPLE_RATE);
+
+        float localPhase = 0f;
+        for (int i = 0; i < WAVETABLE_SIZE; i++)
+        {
+            wavetable[i] = GenerateWaveSample(FormType, localPhase);
+            localPhase += increment;
+        }
+    }
+
+    private float GetWavetableSample(float currentPhase)
+    {
+        // Normalizamos la fase en [0, 2π).
+        float normPhase = currentPhase % (2f * Mathf.PI);
+        if (normPhase < 0f) normPhase += (2f * Mathf.PI);
+
+        // Convertimos la fase a un índice en la tabla (0..WAVETABLE_SIZE).
+        float pos = (normPhase / (2f * Mathf.PI)) * WAVETABLE_SIZE;
+        int index = Mathf.FloorToInt(pos);
+        int indexNext = (index + 1) % WAVETABLE_SIZE;
+
+        // Interpolación lineal entre muestras.
+        float frac = pos - index;
+        return Mathf.Lerp(wavetable[index], wavetable[indexNext], frac);
+    }
+
+    // -----------------------------------------------------
+    // ================ Generación de Onda =================
+    // -----------------------------------------------------
+
+    private float GenerateWaveSample(WaveFormType type, float currentPhase)
+    {
+        switch (type)
+        {
+            case WaveFormType.Sine:
+                return Mathf.Sin(currentPhase);
+
+            case WaveFormType.Square:
+                return Mathf.Sin(currentPhase) >= 0f ? 1f : -1f;
+
+            case WaveFormType.Sawtooth:
+                // Normalizamos la fase 0..2π -> 0..1
+                float pSaw = (currentPhase % (2f * Mathf.PI)) / (2f * Mathf.PI);
+                // Va de -1 a 1
+                return 2f * pSaw - 1f;
+
+            case WaveFormType.Triangle:
+                float pTri = (currentPhase % (2f * Mathf.PI)) / (2f * Mathf.PI);
+                // Mapeo 0..1 en una triangulo -1..1..-1
+                // 0 -> -1, 0.25 -> 0, 0.5 -> 1, 0.75 -> 0, 1 -> -1
+                if (pTri < 0.25f) return Mathf.Lerp(-1f, 0f, pTri / 0.25f);
+                if (pTri < 0.5f) return Mathf.Lerp(0f, 1f, (pTri - 0.25f) / 0.25f);
+                if (pTri < 0.75f) return Mathf.Lerp(1f, 0f, (pTri - 0.5f) / 0.25f);
+                return Mathf.Lerp(0f, -1f, (pTri - 0.75f) / 0.25f);
+
+            case WaveFormType.SA:
+                // Sumatoria de armónicos.
+                return GenerateSA(currentPhase, Narmonicos);
+
+            case WaveFormType.WhiteNoise:
+                // Ruido blanco
+                return Random.value * 2f - 1f;
+
+            default:
+                return 0f;
+        }
+    }
+
+    private float GenerateSA(float phaseSA, int numArm)
+    {
+        if (numArm < 1) numArm = 1;
+        float sum = 0f;
+        // Suma de armónicos.
+        for (int n = 1; n <= numArm; n++)
+        {
+            float amp = (n - 1) < AmplitudesLv.Length ? AmplitudesLv[n - 1] : 1f;
+            sum += amp * Mathf.Sin(n * phaseSA);
+        }
+        return sum / numArm;
+    }
+
+    // -----------------------------------------------------
+    // ============== ADSR y sus actualizaciones ===========
+    // -----------------------------------------------------
+
+    public void UpdateADSR()
+    {
+        adsrCache.Clear();
+        adsrUpdated = true;
+    }
+
+    public void UpdateAttack(int value)
+    {
+        A = value;
+        UpdateADSR();
+    }
+
+    public void UpdateDecay(int value)
+    {
+        D = value;
+        UpdateADSR();
+    }
+
+    public void UpdateSustain(int value)
+    {
+        S = value;
+        UpdateADSR();
+    }
+
+    public void UpdateSustainLevel(float value)
+    {
+        SL = value;
+        UpdateADSR();
+    }
+
+    public void UpdateRelease(int value)
+    {
+        R = value;
+        UpdateADSR();
+    }
+
+    private float GetADSR(int t)
+    {
+        // Si hubo cambios en la configuración, limpiamos cache.
+        if (adsrUpdated)
+        {
+            adsrCache.Clear();
+            adsrUpdated = false;
+        }
+
+        // Si lo tenemos en cache, lo devolvemos.
+        if (adsrCache.TryGetValue(t, out float value)) return value;
+
+        // Convertimos milisegundos a samples.
+        int Attack = Mathf.RoundToInt((A / 1000f) * SAMPLE_RATE);
+        int Decay = Mathf.RoundToInt((D / 1000f) * SAMPLE_RATE);
+        int Sustain = Mathf.RoundToInt((S / 1000f) * SAMPLE_RATE);
+        // NOTA: Si quisieras añadir Release real, necesitarías lógica adicional
+        //       tras soltar la nota. Aquí se deja muy simplificado.
+
+        // Attack: sube de 0 a 1
+        if (t < Attack)
+        {
+            value = (float)t / Attack;
+        }
+        // Decay: baja de 1 a SL
+        else if (t < (Attack + Decay))
+        {
+            float timeIntoDecay = t - Attack;
+            value = Mathf.Lerp(1f, SL, timeIntoDecay / Decay);
+        }
+        // Sustain: se mantiene en SL hasta que se suelte la nota
+        else if (t < (Attack + Decay + Sustain))
+        {
+            value = SL;
+        }
+        else
+        {
+            // Aquí, por simplicidad, se pone en 0 una vez superado el "tiempo total".
+            // Dependiendo de tu implementación real, pasarías a la fase de Release.
+            value = 0.0000001f;
+        }
+
+        adsrCache[t] = value;
+        return value;
+    }
+
+    // -----------------------------------------------------
+    // =========== Eventos de teclado (notas) ==============
+    // -----------------------------------------------------
+
+    public void KeyboardDown(string note)
+    {
+        frecuencia = NoteToFreq(note, Octava);
+
+        // Reiniciamos contadores.
+        phase = 0f;
+        phaseDetune = detuneFrames * (2f * Mathf.PI / SAMPLE_RATE); 
+        sampleIndexADSR = 0;
+
+        // Comenzamos a reproducir.
+        _audioSource.Play();
+    }
+
+    public void KeyboardUp()
+    {
+        _audioSource.Stop();
+        frecuencia = 0f;
+        sampleIndexADSR = 0;
+    }
+
+    // Pequeña utilidad para asignar frecuencias de notas según octava.
+    private float NoteToFreq(string noteName, int oct)
+    {
+        // Frecuencias base en la octava 0 (aprox) para C, C#, D, D#, E, F, F#, G, G#, A, A#, B
+        // A  = 27.5  en octava 0   (en realidad A0 es 27.5)
+        // C0 ~ 16.35
+        // Se multiplica por 2^(octava) para trasladarlo a la octava deseada.
+        noteName = noteName.ToLower();
+        float fBase = 0f;
+
+        switch (noteName)
+        {
+            case "c":     fBase = 16.3516f; break;
+            case "c#":    fBase = 17.3239f; break;
+            case "d":     fBase = 18.3540f; break;
+            case "d#":    fBase = 19.4454f; break;
+            case "e":     fBase = 20.6017f; break;
+            case "f":     fBase = 21.8268f; break;
+            case "f#":    fBase = 23.1246f; break;
+            case "g":     fBase = 24.4997f; break;
+            case "g#":    fBase = 25.9565f; break;
+            case "a":     fBase = 27.5f;    break;
+            case "a#":    fBase = 29.1353f; break;
+            case "b":     fBase = 30.8677f; break;
+            // Nota extra "c2" (se puede ajustar):
+            case "c2":    fBase = 32.7032f; break;
+        }
+
+        return fBase * Mathf.Pow(2, oct);
+    }
+}

@@ -1,0 +1,395 @@
+ using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+public class Osc1 : MonoBehaviour
+{
+    float FM = 44100f;
+
+    float frecuencia = 0;
+
+    public int Octava = 4;
+
+    public AudioSource OscAudio;
+
+    private Dictionary<int, float> adsrCache = new Dictionary<int, float>();
+    private bool adsrUpdated = true;
+
+    private bool useWavetable = false;
+    private float[] wavetable;
+    private const int wavetableSize = 2048;
+
+    public enum WaveFormType
+    { 
+        Sine,
+        Square,
+        Sawtooth,
+        Triangle, 
+        SA
+    }
+
+    public WaveFormType FormType = WaveFormType.Sine;
+
+    public Slider OctaveSl, WaveformSl, ArmonicosSl;
+    public Slider[] amplitudes;
+
+    public float[] AmplitudesLv;
+
+    public TextMeshProUGUI OctaveText, WaveFormText, ArmonicosText;
+
+    public Slider AttackSlider, DecaySlider, SustainSlider, SustainLevelSlider, ReleaseSlider;
+    public TextMeshProUGUI AttackText, DecayText, SustainText, SustainLevelText, ReleaseText;
+
+    public Toggle WavetableToggle;
+
+
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        OscAudio = gameObject.AddComponent<AudioSource>();
+        OscAudio.playOnAwake = false;
+        OscAudio.spatialBlend = 0;
+        OscAudio.Stop();
+        AmplitudesChange();
+
+        AttackSlider.onValueChanged.AddListener(delegate { UpdateAttack(); });
+        DecaySlider.onValueChanged.AddListener(delegate { UpdateDecay(); });
+        SustainSlider.onValueChanged.AddListener(delegate { UpdateSustain(); });
+        SustainLevelSlider.onValueChanged.AddListener(delegate { UpdateSustainLevel(); });
+        ReleaseSlider.onValueChanged.AddListener(delegate { UpdateRelease(); });
+
+        GenerateWavetable();
+        WavetableToggle.onValueChanged.AddListener(delegate { ToggleWavetable(); });
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+       
+    }
+
+    public void OctaveChange() {
+        Octava = (int)OctaveSl.value;
+        OctaveText.SetText(Octava.ToString());
+    }
+
+
+    public void WaveFormChange()
+    {
+        if (WaveformSl.value == 0) { WaveFormText.SetText("Seno"); FormType = WaveFormType.Sine; }
+        else if (WaveformSl.value == 1) { WaveFormText.SetText("Square"); FormType = WaveFormType.Square; }
+        else if (WaveformSl.value == 2) { WaveFormText.SetText("Triangle"); FormType = WaveFormType.Triangle; }
+        else if (WaveformSl.value == 3) { WaveFormText.SetText("Sawtooth"); FormType = WaveFormType.Sawtooth; }
+        else if (WaveformSl.value == 4) { WaveFormText.SetText("Sintesis A"); FormType = WaveFormType.SA; }
+    }
+
+    public void ArmonicosChange() {
+        ArmonicosText.SetText(ArmonicosSl.value.ToString());
+    }
+
+    public void AmplitudesChange()
+    {
+        for (int i = 0; i < (int)amplitudes.Length; i++) {
+            AmplitudesLv[i] = amplitudes[i].value;
+        }
+    }
+
+
+    float SineWave(float f, int t)
+    {
+        return Mathf.Sin(2 * Mathf.PI * f * t / FM);
+    }
+
+    float SineWaveSA(float f, int t, float A, int n)
+    {
+        return Mathf.Sin(2 * Mathf.PI * n * f * t / FM) * A;
+    }
+
+    float SquareWave(float f, int t)
+    {
+        return Mathf.Sign(Mathf.Sin(2 * Mathf.PI * f * t / FM));
+    }
+
+    float LinearInterpolation(float x, float x0, float x1, float y0, float y1)
+    { 
+        float y = y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+        return y;
+    }
+
+    float TriangleWave(float f, int Index)
+    {
+        var T = FM / f;
+        var t = Index % T;
+
+        float t1 = 0;
+        float t2 = T / 4f;
+        float t3 = 3 * T / 4f;
+        float t4 = T;
+
+        float x1 = 0f, x2 = 1f, x3 = -1f, x4 = 0f;
+
+        if (t <= t2)
+            return LinearInterpolation(t, t1, t2, x1, x2);
+        else if (t <= t3)
+            return LinearInterpolation(t, t2, t3, x2, x3);
+        else
+            return LinearInterpolation(t, t3, t4, x3, x4);
+    }
+
+    float SawtoothWave(float f, int Index)
+    {
+        var T = FM / f;
+        var t = Index % T;
+
+        float t1 = 0;
+       
+        float t2 = T;
+
+        float x1 = 1f, x2 = -1f;
+
+        
+        return LinearInterpolation(t, t1, t2, x1, x2);
+        
+    }
+
+    float SA(float f, int t, int Armonicos)
+    {
+        float x = 0f;
+        for (int n = 1; n <= Armonicos; n++)
+        {
+            float A = AmplitudesLv[n-1];
+            x += SineWaveSA(f, t, A, n);
+        }
+        
+        return x/Armonicos;
+    }
+
+    public void GenerateWavetable()
+    {
+        wavetable = new float[wavetableSize];
+        for (int i = 0; i < wavetableSize; i++)
+        {
+            float phase = 2 * Mathf.PI * i / wavetableSize;
+            var f = FM / wavetableSize;
+            switch (FormType)
+            {
+                case WaveFormType.Sine:
+                                   
+                    wavetable[i] =  SineWave(f, i);
+                    break;
+                case WaveFormType.Square:
+                    wavetable[i] = SquareWave(f, i);
+                    break;
+                case WaveFormType.Sawtooth:
+                    wavetable[i] = SawtoothWave(f, i);
+                    break;
+                case WaveFormType.Triangle:
+                    wavetable[i] = TriangleWave(f, i);
+                    break;
+                case WaveFormType.SA:
+                    wavetable[i] = SA(f, i, (int)ArmonicosSl.value);
+                    break;
+            }
+        }
+    }
+
+    private float GetWavetableSample(int index, float frequency)
+    {
+        int wavetableIndex = Mathf.RoundToInt((index * frequency / FM) * wavetableSize) % wavetableSize;
+        return wavetable[wavetableIndex];
+    }
+
+    public void ToggleWavetable()
+    {
+        useWavetable = WavetableToggle.isOn;
+        GenerateWavetable(); // Regenerar la tabla cuando se activa o desactiva
+    }
+
+    
+    public float A = 5;
+    public float D = 5;
+    public float S = 5;
+    public float SL = 0.7f;
+    public float R = 5;
+
+    public void UpdateADSR()
+    {
+        adsrCache.Clear();
+        adsrUpdated = true;
+    }
+
+    public void UpdateAttack()
+    {
+        A = AttackSlider.value;
+        AttackText.text = A.ToString("F2");
+        UpdateADSR();
+    }
+    
+    public void UpdateDecay()
+    {
+        D = DecaySlider.value;
+        DecayText.text = D.ToString("F2");
+        UpdateADSR();
+    }
+    
+    public void UpdateSustain()
+    {
+        S = SustainSlider.value;
+        SustainText.text = S.ToString("F2");
+        UpdateADSR();
+    }
+    
+    public void UpdateSustainLevel()
+    {
+        SL = SustainLevelSlider.value;
+        SustainLevelText.text = SL.ToString("F2");
+        UpdateADSR();
+    }
+    
+    public void UpdateRelease()
+    {
+        R = ReleaseSlider.value;
+        ReleaseText.text = R.ToString("F2");
+        UpdateADSR();
+    }
+    float getADSR(int t) {
+        
+        if (adsrUpdated)
+        {
+            adsrCache.Clear();
+            adsrUpdated = false;
+        }
+
+        if (adsrCache.TryGetValue(t, out float value))
+            return value;
+        else{
+        //convertir a fps
+        int Attack = Mathf.RoundToInt((A / 1000f) * FM);
+        int Decay = Mathf.RoundToInt((D / 1000f) * FM);
+        int Sustain = Mathf.RoundToInt((S / 1000f) * FM);
+        int Release = Mathf.RoundToInt((R / 1000f) * FM);
+
+        if (t < Attack)
+            value = (float)t / Attack;
+        else if (t < Decay)
+            value = Mathf.Lerp(1f, SL, (float)(t - Attack) / (Decay - Attack));
+        else if (t < Sustain)
+            value = SL;
+        else if (t < Release)
+            value = Mathf.Lerp(SL, 0.000001f, (float)(t - Sustain) / (Release - Sustain));
+        else
+            value = 0.0000001f;
+        
+        adsrCache[t] = value;
+        return value;
+        }
+    }
+    public void KeyboardDown(string Note)
+    {
+        
+        if (Note == "C" || Note == "c") frecuencia = 16.3516f * Mathf.Pow(2, Octava);
+        else if (Note == "C#" || Note == "c#") frecuencia = 17.3239f * Mathf.Pow(2, Octava);
+        else if (Note == "D" || Note == "d") frecuencia = 18.3540f * Mathf.Pow(2, Octava);
+        else if (Note == "D#" || Note == "d#") frecuencia = 19.4454f * Mathf.Pow(2, Octava);
+        else if (Note == "E" || Note == "e") frecuencia = 20.6017f * Mathf.Pow(2, Octava);
+        else if (Note == "F" || Note == "f") frecuencia = 21.8268f * Mathf.Pow(2, Octava);
+        else if (Note == "F#" || Note == "f#") frecuencia = 23.1246f * Mathf.Pow(2, Octava);
+        else if (Note == "G" || Note == "g") frecuencia = 24.4997f * Mathf.Pow(2, Octava);
+
+        else if (Note == "G#" || Note == "g#") frecuencia = 25.9565f * Mathf.Pow(2, Octava);
+        else if (Note == "A" || Note == "a") frecuencia = 27.5f * Mathf.Pow(2, Octava);
+
+        else if (Note == "A#" || Note == "a#") frecuencia = 29.1353f * Mathf.Pow(2, Octava);
+        else if (Note == "B" || Note == "b") frecuencia = 30.3677f * Mathf.Pow(2, Octava);
+
+        else if (Note == "C2" || Note == "c2") frecuencia = 2 * 16.3516f * Mathf.Pow(2, Octava);
+
+
+        OscAudio.Play();
+    }
+
+    public void KeyboardUp()
+    {
+        OscAudio.Stop();
+        TimeIndex = 0;
+        frecuencia = 0;
+    }
+
+
+    float X = 0;
+    int TimeIndex = 0;
+    /*private void OnAudioFilterRead(float[] data, int channels)
+    {
+        for (int i = 0; i < data.Length; i += channels)
+        {
+            float E = getADSR(TimeIndex);
+            //float E = 1f;
+            switch (FormType) {
+                case (WaveFormType.Sine):
+                    X = SineWave(frecuencia, TimeIndex);
+                    data[i] = X*E;
+                    if (channels == 2) data[i + 1] = X*E;
+                break;
+                case (WaveFormType.Square):
+                    X = SquareWave(frecuencia, TimeIndex);
+                    data[i] = X*E;
+                    if (channels == 2) data[i + 1] = X*E;
+                    break;
+                case (WaveFormType.Triangle):
+                    X = TriangleWave(frecuencia, TimeIndex);
+                    data[i] = X*E;
+                    if (channels == 2) data[i + 1] = X*E;
+                    break;
+                case (WaveFormType.Sawtooth):
+                    X = SawtoothWave(frecuencia, TimeIndex);
+                    data[i] = X*E;
+                    if (channels == 2) data[i + 1] = X*E;
+                    break;
+                case (WaveFormType.SA):
+                    X = SA(frecuencia, TimeIndex, (int)ArmonicosSl.value);
+                    data[i] = X*E;
+                    if (channels == 2) data[i + 1] = X * E;
+                    break;
+
+            }
+            
+            TimeIndex++;
+        }
+    }*/
+
+    private void OnAudioFilterRead(float[] data, int channels)
+    {
+        for (int i = 0; i < data.Length; i += channels)
+        {
+            float E = getADSR(TimeIndex++);
+            float X = useWavetable ? GetWavetableSample(TimeIndex, frecuencia) : GenerateWaveSample(FormType, frecuencia, TimeIndex);
+            
+            data[i] = X * E;
+            if (channels == 2) data[i + 1] = X * E;
+
+            TimeIndex++;
+        }
+    }
+
+    private float GenerateWaveSample(WaveFormType type, float f, int t)
+    {
+        switch (type)
+        {
+            case WaveFormType.Sine:
+                return  SineWave(frecuencia, TimeIndex);
+            case WaveFormType.Square:
+                return SquareWave(frecuencia, TimeIndex);
+            case WaveFormType.Sawtooth:
+                return SawtoothWave(frecuencia, TimeIndex);
+            case WaveFormType.Triangle:
+                return TriangleWave(frecuencia, TimeIndex);
+            case WaveFormType.SA:
+                return SA(frecuencia, TimeIndex, (int)ArmonicosSl.value);
+            default:
+                return 0f;
+        }
+    }
+}

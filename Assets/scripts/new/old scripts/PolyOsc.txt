@@ -1,0 +1,180 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+public class PolyphonicSynth : MonoBehaviour
+{
+    public GameObject oscillatorPrefab; // Prefab de Osc
+
+    private Dictionary<string, Osc> activeOscillators = new Dictionary<string, Osc>();
+
+    // UI Elements
+    public Slider OctaveSl, WaveformSl, ArmonicosSl;
+    public Slider[] amplitudes;
+    public TextMeshProUGUI OctaveText, WaveFormText, ArmonicosText;
+
+    public Slider AttackSlider, DecaySlider, SustainSlider, SustainLevelSlider, ReleaseSlider;
+    public TextMeshProUGUI AttackText, DecayText, SustainText, SustainLevelText, ReleaseText;
+
+    public Toggle WavetableToggle;
+
+    private void Start()
+    {
+        if (oscillatorPrefab == null)
+        {
+            Debug.LogError("Asignar un prefab de Oscillator en el inspector.");
+            return;
+        }
+
+        // Asignar Listeners
+        OctaveSl.onValueChanged.AddListener(delegate { UpdateOctave(); });
+        WaveformSl.onValueChanged.AddListener(delegate { UpdateWaveform(); });
+        ArmonicosSl.onValueChanged.AddListener(delegate { UpdateArmonicos(); });
+        WavetableToggle.onValueChanged.AddListener(delegate { ToggleWavetable(); });
+
+        AttackSlider.onValueChanged.AddListener(delegate { UpdateAttack(); });
+        DecaySlider.onValueChanged.AddListener(delegate { UpdateDecay(); });
+        SustainSlider.onValueChanged.AddListener(delegate { UpdateSustain(); });
+        SustainLevelSlider.onValueChanged.AddListener(delegate { UpdateSustainLevel(); });
+        ReleaseSlider.onValueChanged.AddListener(delegate { UpdateRelease(); });
+
+        foreach (Slider ampSlider in amplitudes)
+        {
+            ampSlider.onValueChanged.AddListener(delegate { UpdateAmplitudes(); });
+        }
+    }
+
+    public void NoteOn(string note)
+    {
+        if (!activeOscillators.ContainsKey(note))
+        {
+            GameObject oscInstance = Instantiate(oscillatorPrefab, transform);
+            Osc oscScript = oscInstance.GetComponent<Osc>();
+            if (oscScript != null)
+            {
+                activeOscillators[note] = oscScript;
+                oscScript.KeyboardDown(note);
+                ApplySettingsToOsc(oscScript); // Aplicar parámetros actuales a la nueva instancia
+            }
+        }
+    }
+
+    public void NoteOff(string note)
+    {
+        if (activeOscillators.ContainsKey(note))
+        {
+            activeOscillators[note].KeyboardUp();
+            Destroy(activeOscillators[note].gameObject, 0.1f);
+            activeOscillators.Remove(note);
+        }
+    }
+
+    // Métodos para actualizar todas las instancias de Osc activas
+    private void UpdateOctave()
+    {
+        OctaveText.SetText(OctaveSl.value.ToString());
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.Octava = (int)OctaveSl.value;
+        }
+    }
+
+    private void UpdateWaveform()
+    {
+        if (WaveformSl.value == 0) { WaveFormText.SetText("Seno"); }
+        else if (WaveformSl.value == 1) { WaveFormText.SetText("Square"); }
+        else if (WaveformSl.value == 2) { WaveFormText.SetText("Triangle"); }
+        else if (WaveformSl.value == 3) { WaveFormText.SetText("Sawtooth"); }
+        else if (WaveformSl.value == 4) { WaveFormText.SetText("Sintesis A"); }
+
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.WaveFormChange();
+        }
+    }
+
+    private void UpdateArmonicos()
+    {
+        ArmonicosText.SetText(ArmonicosSl.value.ToString());
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.ArmonicosChange();
+        }
+    }
+
+    private void UpdateAmplitudes()
+    {
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.AmplitudesChange();
+        }
+    }
+
+    private void ToggleWavetable()
+    {
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.ToggleWavetable();
+        }
+    }
+
+    private void UpdateAttack()
+    {
+        AttackText.text = AttackSlider.value.ToString("F2");
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.UpdateAttack();
+        }
+    }
+
+    private void UpdateDecay()
+    {
+        DecayText.text = DecaySlider.value.ToString("F2");
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.UpdateDecay();
+        }
+    }
+
+    private void UpdateSustain()
+    {
+        SustainText.text = SustainSlider.value.ToString("F2");
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.UpdateSustain();
+        }
+    }
+
+    private void UpdateSustainLevel()
+    {
+        SustainLevelText.text = SustainLevelSlider.value.ToString("F2");
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.UpdateSustainLevel();
+        }
+    }
+
+    private void UpdateRelease()
+    {
+        ReleaseText.text = ReleaseSlider.value.ToString("F2");
+        foreach (var osc in activeOscillators.Values)
+        {
+            osc.UpdateRelease();
+        }
+    }
+
+    private void ApplySettingsToOsc(Osc osc)
+    {
+        osc.Octava = (int)OctaveSl.value;
+        osc.WaveFormChange();
+        osc.ArmonicosChange();
+        osc.AmplitudesChange();
+        osc.ToggleWavetable();
+        osc.UpdateAttack();
+        osc.UpdateDecay();
+        osc.UpdateSustain();
+        osc.UpdateSustainLevel();
+        osc.UpdateRelease();
+    }
+}

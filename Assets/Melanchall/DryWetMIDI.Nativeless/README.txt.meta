@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 89fd8a61702bcd44cbca1d31308b1bca
+TextScriptImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 228998
+  packageName: DryWetMIDI.Nativeless
+  packageVersion: 8.0.2
+  assetPath: Assets/Melanchall/DryWetMIDI.Nativeless/README.txt
+  uploadId: 776550

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 65578be1526fdad4bb58224dbca7494d
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 228998
+  packageName: DryWetMIDI.Nativeless
+  packageVersion: 8.0.2
+  assetPath: Assets/Melanchall/DryWetMIDI.Nativeless/Demo/DemoScene.unity
+  uploadId: 776550
