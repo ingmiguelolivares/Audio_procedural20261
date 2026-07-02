@@ -3,18 +3,44 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using UnityEngine.Serialization;
 
 // Esta clase define un oscilador (Osc) que genera distintas formas de onda.
 // Se encarga de reproducir audio en Unity usando un AudioSource y permite configurar parámetros
 // como la frecuencia, la octava, el número de armónicos, el nivel de volumen y una envolvente ADSR.
 public class Osc : MonoBehaviour
 {
+    public enum LegacyWaveformType
+    {
+        Sine,
+        Square,
+        Sawtooth,
+        Triangle,
+        SA,
+        WhiteNoise
+    }
+
+    public enum AudioEngineBackend
+    {
+        LegacyOnAudioFilterRead,
+        ExternalProceduralDSP
+    }
+
     // Frecuencia de muestreo (samples por segundo).
     float FM = 44100f;
 
     // Frecuencia base de la forma de onda que se va a generar.
-    public float frecuencia = 0, tremLFOf = 0f, VibLFOf = 0f;
+    public float frecuencia = 0;
+    [FormerlySerializedAs("FOscAmp")] public float tremLFOf = 0f;
+    [FormerlySerializedAs("FOscF")] public float VibLFOf = 0f;
     public float vibratoDepth = 5f;
+
+    [Header("FM synthesis")]
+    [Range(0f, 1f)] public float fmMacroAmount = 0.35f;
+    [Range(0.25f, 8f)] public float fmMinRatio = 1f;
+    [Range(0.25f, 12f)] public float fmMaxRatio = 5f;
+    [Range(0f, 16f)] public float fmMaxIndex = 8f;
+    [Range(0f, 0.5f)] public float fmHighHarmonicBlend = 0.18f;
     public float fmModFrequency = 220f;
     public float fmModIndex = 1f;
 
@@ -53,6 +79,9 @@ public class Osc : MonoBehaviour
 
     // Componente de audio de Unity que reproducirá el sonido generado.
     public AudioSource OscAudio;
+    public AudioEngineBackend audioEngineBackend = AudioEngineBackend.LegacyOnAudioFilterRead;
+    public int streamingChannels = 2;
+    public int streamingClipSeconds = 1;
 
     // Diccionario para almacenar valores calculados de la envolvente (ADSR).
     private Dictionary<int, float> adsrCache = new Dictionary<int, float>();
@@ -73,16 +102,19 @@ public class Osc : MonoBehaviour
 
     // Indica si se utilizará una wavetable en lugar de la generación directa.
     private bool useWavetable = false;
+    private bool currentWavetableLoadedFromExternal = false;
 
     // Arreglo que contendrá los valores precalculados de la forma de onda cuando se use wavetable.
     private float[] wavetable;
 
     [Header("Loaders de wavetables externas")]
+    public bool autoUseWavetableForSamplingAndCustom = true;
     public WavetableTxtLoader sineWavetableLoader;
     public WavetableTxtLoader squareWavetableLoader;
     public WavetableTxtLoader sawtoothWavetableLoader;
     public WavetableTxtLoader triangleWavetableLoader;
     public WavetableTxtLoader saWavetableLoader;
+    public WavetableTxtLoader samplingWavetableLoader;
     public WavetableTxtLoader custom1WavetableLoader;
     public WavetableTxtLoader custom2WavetableLoader;
     public WavetableTxtLoader custom3WavetableLoader;
@@ -91,7 +123,8 @@ public class Osc : MonoBehaviour
     private const int wavetableSize = 2048;
 
     // Variables para manejar desafinación.
-    public float detuneCents = 0f;
+    [FormerlySerializedAs("DetuneCents")] public float detuneCents = 0f;
+    public int detuneFrames = 0;
 
     // Enum que define los tipos de forma de onda soportados.
     public enum WaveFormType
@@ -115,49 +148,117 @@ public class Osc : MonoBehaviour
     // Arreglo que define los niveles de amplitud para cada armónico en la forma de onda SA.
     public float[] AmplitudesLv = new float[10];
 
+    [Header("Compatibilidad escena legacy")]
+    public float OutputLevel = 1f;
+    public AudioSource Aud;
+    public LegacyWaveformType waveformType = LegacyWaveformType.Sine;
+    public float[] Amplitudes = new float[] { 1f, 0.7f, 0.8f, 0.6f, 0.5f, 0.4f, 0.5f, 0.6f, 0.7f, 0.4f };
+    [FormerlySerializedAs("SLevel")] public float SLegacy = 0.7f;
+    public float AF = 5f;
+    public float DF = 10f;
+    public float LowEnvAF = 1f;
+    public float HighEnvDF = 1f;
+    public float FreqAlt = 1.5f;
+    public float W = 1f;
+    public bool UseFilterModulation = false;
+    public float FilterLevel = 0f;
+    public bool UseDistortion = false;
+    public float DistortionAmount = 0.35f;
+
     // Variables auxiliares para el cálculo en OnAudioFilterRead.
     float X = 0;
     int TimeIndex = 0;
+    private AudioClip streamingClip;
+    private ProceduralSynthVoice proceduralSynthVoice;
+    private bool externalBackendDirty = true;
+    private bool noteIsActive = false;
+    private bool legacyValuesApplied = false;
+    private bool lastMuteState = false;
+    private float lastAudioSourceVolume = 1f;
 
     void Awake()
     {
-        OscAudio = gameObject.GetComponent<AudioSource>();
+        if (OscAudio == null)
+            OscAudio = gameObject.GetComponent<AudioSource>();
 
         if (OscAudio != null)
             OscAudio.spatialBlend = 0;
 
+        ApplyLegacySerializedValuesIfNeeded();
         BuildAudioClipADSRData();
 
         LoadAssignedWavetableLoaders();
         GenerateWavetable();
+        InitializeExternalBackendIfNeeded();
+    }
+
+    void Update()
+    {
+        if (OscAudio != null)
+        {
+            if (lastMuteState != OscAudio.mute || !Mathf.Approximately(lastAudioSourceVolume, OscAudio.volume))
+            {
+                lastMuteState = OscAudio.mute;
+                lastAudioSourceVolume = OscAudio.volume;
+                MarkExternalBackendDirty();
+            }
+        }
+
+        SyncExternalBackendIfNeeded();
+    }
+
+    void OnDestroy()
+    {
+        if (proceduralSynthVoice != null)
+        {
+            proceduralSynthVoice.Dispose();
+            proceduralSynthVoice = null;
+        }
     }
 
     // Actualiza el nivel de volumen.
     public void UpdateVolume(float value)
     {
         Level = value;
+        MarkExternalBackendDirty();
     }
 
     // Cambia la octava.
     public void OctaveChange(int value)
     {
         Octava = value;
+        MarkExternalBackendDirty();
     }
 
     // Cambia el tipo de forma de onda.
     public void WaveFormChange(WaveFormType tipo)
     {
+        if (FormType == tipo && wavetable != null)
+            return;
+
         FormType = tipo;
         GenerateWavetable();
+        MarkExternalBackendDirty();
     }
+
+    public void UpdateFMAmount(float value)
+    {
+        fmMacroAmount = Mathf.Clamp01(value);
+        MarkExternalBackendDirty();
+    }
+
+    public AudioSource AudSource => OscAudio;
+    public AudioSource AudCompat => OscAudio;
 
     // Cambia la cantidad de armónicos para SA.
     public void ArmonicosChange(int value)
     {
         Narmonicos = value;
 
-        if (useWavetable)
+        if (ShouldUseWavetableForCurrentWaveform())
             GenerateWavetable();
+
+        MarkExternalBackendDirty();
     }
 
     // Cambia la amplitud de un armónico.
@@ -168,8 +269,10 @@ public class Osc : MonoBehaviour
 
         AmplitudesLv[i] = value;
 
-        if (useWavetable)
+        if (ShouldUseWavetableForCurrentWaveform())
             GenerateWavetable();
+
+        MarkExternalBackendDirty();
     }
 
     // Genera una onda seno.
@@ -184,17 +287,30 @@ public class Osc : MonoBehaviour
         return Mathf.Sin(2 * Mathf.PI * n * f * t / FM) * A;
     }
 
-    // Genera una onda FM basada en una portadora seno y una moduladora seno.
-    // x(t) = sin(2π f_c t + I * sin(2π f_m t))
+    // Genera una onda FM controlada por un único parámetro macro.
+    // El macro mueve internamente relación de modulación, índice y brillo.
     float FMWave(float carrierFrequency, int t)
     {
         if (carrierFrequency <= 0f)
             return 0f;
 
-        float carrierPhase = 2f * Mathf.PI * carrierFrequency * t / FM;
-        float modulatorPhase = 2f * Mathf.PI * fmModFrequency * t / FM;
+        float amount = Mathf.Clamp01(fmMacroAmount);
+        float shapedAmount = Mathf.SmoothStep(0f, 1f, amount);
+        float ratio = Mathf.Lerp(Mathf.Max(0.25f, fmMinRatio), Mathf.Max(0.25f, fmMaxRatio), shapedAmount);
+        float indexLimit = Mathf.Max(0f, fmMaxIndex * Mathf.Max(0.05f, fmModIndex));
+        float modulationIndex = Mathf.Lerp(0f, indexLimit, Mathf.Pow(amount, 0.8f));
+        float modulatorFrequency = Mathf.Min(carrierFrequency * ratio, FM * 0.45f);
+        float harmonicBlend = Mathf.Lerp(0f, Mathf.Clamp01(fmHighHarmonicBlend), shapedAmount);
 
-        return Mathf.Sin(carrierPhase + fmModIndex * Mathf.Sin(modulatorPhase));
+        fmModFrequency = modulatorFrequency;
+
+        float carrierPhase = 2f * Mathf.PI * carrierFrequency * t / FM;
+        float modulatorPhase = 2f * Mathf.PI * modulatorFrequency * t / FM;
+
+        float modulation = Mathf.Sin(modulatorPhase);
+        float primary = Mathf.Sin(carrierPhase + modulationIndex * modulation);
+        float brightLayer = Mathf.Sin((carrierPhase * 2f) + (modulationIndex * 0.5f * modulation));
+        return Mathf.Lerp(primary, 0.82f * primary + 0.18f * brightLayer, harmonicBlend);
     }
 
     // Genera una onda cuadrada.
@@ -302,6 +418,7 @@ public class Osc : MonoBehaviour
         samplingClip.GetData(samplingData, 0);
 
         ValidateSamplingFrameRange();
+        MarkExternalBackendDirty();
     }
 
     private void ValidateSamplingFrameRange()
@@ -440,6 +557,7 @@ public class Osc : MonoBehaviour
         TryLoadLoader(sawtoothWavetableLoader);
         TryLoadLoader(triangleWavetableLoader);
         TryLoadLoader(saWavetableLoader);
+        TryLoadLoader(samplingWavetableLoader);
         TryLoadLoader(custom1WavetableLoader);
         TryLoadLoader(custom2WavetableLoader);
         TryLoadLoader(custom3WavetableLoader);
@@ -500,6 +618,9 @@ public class Osc : MonoBehaviour
             case WaveFormType.SA:
                 return saWavetableLoader;
 
+            case WaveFormType.Sampling1:
+                return samplingWavetableLoader;
+
             case WaveFormType.Custom1:
                 return custom1WavetableLoader;
 
@@ -514,15 +635,52 @@ public class Osc : MonoBehaviour
         }
     }
 
+    private bool ShouldUseWavetableForCurrentWaveform()
+    {
+        return useWavetable || ShouldAutoUseWavetableForCurrentWaveform();
+    }
+
+    private bool ShouldAutoUseWavetableForCurrentWaveform()
+    {
+        if (!autoUseWavetableForSamplingAndCustom)
+            return false;
+
+        return FormType == WaveFormType.Sampling1 ||
+               FormType == WaveFormType.Custom1 ||
+               FormType == WaveFormType.Custom2 ||
+               FormType == WaveFormType.Custom3;
+    }
+
+    private bool ShouldReadFromWavetableInAudio()
+    {
+        if (FormType == WaveFormType.FM)
+            return false;
+
+        if (FormType == WaveFormType.Sampling1)
+            return currentWavetableLoadedFromExternal;
+
+        if (FormType == WaveFormType.Custom1 ||
+            FormType == WaveFormType.Custom2 ||
+            FormType == WaveFormType.Custom3)
+            return currentWavetableLoadedFromExternal;
+
+        return useWavetable;
+    }
+
     // Genera o regenera la tabla de ondas.
     public void GenerateWavetable()
     {
-        if (useWavetable)
+        currentWavetableLoadedFromExternal = false;
+
+        if (ShouldUseWavetableForCurrentWaveform())
         {
             WavetableTxtLoader loader = GetLoaderForCurrentWaveform();
 
             if (TryBuildWavetableFromLoader(loader))
+            {
+                currentWavetableLoadedFromExternal = true;
                 return;
+            }
         }
 
         wavetable = new float[wavetableSize];
@@ -597,6 +755,7 @@ public class Osc : MonoBehaviour
         useWavetable = value;
         LoadAssignedWavetableLoaders();
         GenerateWavetable();
+        MarkExternalBackendDirty();
     }
 
     // Parámetros ADSR.
@@ -610,6 +769,7 @@ public class Osc : MonoBehaviour
     {
         adsrCache.Clear();
         adsrUpdated = true;
+        MarkExternalBackendDirty();
     }
 
     public void UpdateAttack(int value)
@@ -633,6 +793,7 @@ public class Osc : MonoBehaviour
     public void UpdateSustainLevel(float value)
     {
         SL = value;
+        SLegacy = value;
         UpdateADSR();
     }
 
@@ -723,6 +884,7 @@ public class Osc : MonoBehaviour
         }
 
         audioClipADSRReady = true;
+        MarkExternalBackendDirty();
     }
 
     private float GetAudioClipADSR(int t)
@@ -816,6 +978,7 @@ public class Osc : MonoBehaviour
         else if (Note == "C2" || Note == "c2") frecuencia = 2 * 16.3516f * Mathf.Pow(2, Octava);
 
         TimeIndex = 0;
+        noteIsActive = true;
 
         if (useAudioClipADSR)
             BuildAudioClipADSRData();
@@ -829,6 +992,24 @@ public class Osc : MonoBehaviour
             samplingReadPosition = samplingStartFrame;
         }
 
+        if (UseExternalProceduralDSP())
+        {
+            InitializeExternalBackendIfNeeded();
+            SyncExternalBackendIfNeeded(true);
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            Debug.Log($"[Osc] KeyboardDown note={Note} freq={frecuencia} backend={audioEngineBackend} level={GetEffectiveOutputLevel()} mute={(OscAudio != null && OscAudio.mute)} volume={(OscAudio != null ? OscAudio.volume : 1f)}");
+#endif
+
+            if (proceduralSynthVoice != null)
+                proceduralSynthVoice.NoteOn(frecuencia);
+
+            if (OscAudio != null && !OscAudio.isPlaying)
+                OscAudio.Play();
+
+            return;
+        }
+
         if (OscAudio != null)
             OscAudio.Play();
     }
@@ -836,6 +1017,11 @@ public class Osc : MonoBehaviour
     // Detiene la reproducción.
     public void KeyboardUp()
     {
+        noteIsActive = false;
+
+        if (UseExternalProceduralDSP() && proceduralSynthVoice != null)
+            proceduralSynthVoice.NoteOff();
+
         if (OscAudio != null)
             OscAudio.Stop();
 
@@ -847,6 +1033,11 @@ public class Osc : MonoBehaviour
     // Unity llama esto para rellenar el buffer de audio.
     private void OnAudioFilterRead(float[] data, int channels)
     {
+        if (UseExternalProceduralDSP())
+        {
+            return;
+        }
+
         if (data == null || data.Length == 0)
             return;
 
@@ -874,13 +1065,13 @@ public class Osc : MonoBehaviour
             float detuneFactor = Mathf.Pow(2f, detuneCents / 1200f);
             float detunedFrequency = currentFrequency * detuneFactor;
 
-            // Sampling1 no debe pasar por wavetable aunque el toggle esté activo.
-            bool shouldUseWavetable = useWavetable && FormType != WaveFormType.Sampling1;
+            // FM se calcula directo. Sampling1 usa wavetable si tiene loader; si no, conserva AudioClip sampling.
+            bool shouldUseWavetable = ShouldReadFromWavetableInAudio();
 
             float X;
             float X1;
 
-            if (FormType == WaveFormType.Sampling1)
+            if (FormType == WaveFormType.Sampling1 && !shouldUseWavetable)
             {
                 // En sampling solo se debe avanzar una vez por muestra de salida.
                 // Si se llamara dos veces a SamplingWave(), el clip avanzaría al doble de velocidad.
@@ -952,5 +1143,200 @@ public class Osc : MonoBehaviour
             default:
                 return 0f;
         }
+    }
+
+    private void ApplyLegacySerializedValuesIfNeeded()
+    {
+        if (legacyValuesApplied)
+            return;
+
+        bool hasLegacyValues = Aud != null ||
+                               OutputLevel != 1f ||
+                               detuneFrames != 0 ||
+                               SLegacy != 0.7f ||
+                               AF != 5f ||
+                               DF != 10f ||
+                               LowEnvAF != 1f ||
+                               HighEnvDF != 1f ||
+                               FreqAlt != 1.5f ||
+                               W != 1f ||
+                               UseFilterModulation ||
+                               FilterLevel != 0f ||
+                               UseDistortion ||
+                               DistortionAmount != 0.35f;
+
+        if (!hasLegacyValues)
+        {
+            Aud = OscAudio;
+            legacyValuesApplied = true;
+            return;
+        }
+
+        if (OscAudio == null && Aud != null)
+            OscAudio = Aud;
+
+        Level = OutputLevel;
+        SL = SLegacy;
+
+        if (Amplitudes != null && Amplitudes.Length > 0)
+        {
+            int count = Mathf.Min(Amplitudes.Length, AmplitudesLv.Length);
+            for (int index = 0; index < count; index++)
+                AmplitudesLv[index] = Amplitudes[index];
+        }
+
+        FormType = ConvertLegacyWaveformType(waveformType);
+        audioEngineBackend = AudioEngineBackend.ExternalProceduralDSP;
+        Aud = OscAudio;
+        externalBackendDirty = true;
+        legacyValuesApplied = true;
+    }
+
+    private WaveFormType ConvertLegacyWaveformType(LegacyWaveformType legacyType)
+    {
+        switch (legacyType)
+        {
+            case LegacyWaveformType.Sine:
+                return WaveFormType.Sine;
+            case LegacyWaveformType.Square:
+                return WaveFormType.Square;
+            case LegacyWaveformType.Sawtooth:
+                return WaveFormType.Sawtooth;
+            case LegacyWaveformType.Triangle:
+                return WaveFormType.Triangle;
+            case LegacyWaveformType.SA:
+                return WaveFormType.SA;
+            case LegacyWaveformType.WhiteNoise:
+                return WaveFormType.WhiteNoise;
+            default:
+                return WaveFormType.Sine;
+        }
+    }
+
+    public void MarkExternalBackendDirty()
+    {
+        externalBackendDirty = true;
+    }
+
+    private bool UseExternalProceduralDSP()
+    {
+        return audioEngineBackend == AudioEngineBackend.ExternalProceduralDSP;
+    }
+
+    private void InitializeExternalBackendIfNeeded()
+    {
+        if (!UseExternalProceduralDSP())
+            return;
+
+        if (OscAudio == null)
+            OscAudio = gameObject.GetComponent<AudioSource>();
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (proceduralSynthVoice == null)
+            proceduralSynthVoice = new ProceduralSynthVoice(Mathf.RoundToInt(FM), Mathf.Max(1, streamingChannels));
+
+        return;
+#endif
+
+        if (streamingClip == null)
+        {
+            int sampleRate = Mathf.RoundToInt(FM);
+            int channels = Mathf.Max(1, streamingChannels);
+            int lengthSamples = Mathf.Max(sampleRate / 4, sampleRate * Mathf.Max(1, streamingClipSeconds));
+            streamingClip = AudioClip.Create($"{name}_ExternalDSP", lengthSamples, channels, sampleRate, true, OnStreamingClipRead);
+        }
+
+        if (OscAudio != null && OscAudio.clip != streamingClip)
+        {
+            OscAudio.clip = streamingClip;
+            OscAudio.loop = true;
+            OscAudio.playOnAwake = false;
+        }
+
+        if (proceduralSynthVoice == null)
+            proceduralSynthVoice = new ProceduralSynthVoice(Mathf.RoundToInt(FM), Mathf.Max(1, streamingChannels));
+    }
+
+    private void OnStreamingClipRead(float[] data)
+    {
+        if (data == null || data.Length == 0)
+            return;
+
+        if (!UseExternalProceduralDSP() || proceduralSynthVoice == null || !noteIsActive)
+        {
+            System.Array.Clear(data, 0, data.Length);
+            return;
+        }
+
+        proceduralSynthVoice.Render(data);
+    }
+
+    private void SyncExternalBackendIfNeeded(bool force = false)
+    {
+        if (!UseExternalProceduralDSP())
+            return;
+
+        InitializeExternalBackendIfNeeded();
+
+        if (!force && !externalBackendDirty)
+            return;
+
+        EnsureSamplingDataLoaded();
+
+        if (useAudioClipADSR)
+            BuildAudioClipADSRData();
+
+        ProceduralSynthVoiceConfig config = new ProceduralSynthVoiceConfig
+        {
+            sampleRate = Mathf.RoundToInt(FM),
+            channels = Mathf.Max(1, streamingChannels),
+            waveform = (int)FormType,
+            harmonicCount = Narmonicos,
+            useWavetable = ShouldReadFromWavetableInAudio(),
+            useAudioClipADSR = useAudioClipADSR,
+            level = GetEffectiveOutputLevel(),
+            detuneCents = detuneCents,
+            tremLfoFrequency = tremLFOf,
+            vibLfoFrequency = VibLFOf,
+            vibratoDepth = vibratoDepth,
+            attackMs = A,
+            decayMs = D,
+            sustainMs = S,
+            sustainLevel = SL,
+            releaseMs = R,
+            fmMacroAmount = fmMacroAmount,
+            fmMinRatio = fmMinRatio,
+            fmMaxRatio = fmMaxRatio,
+            fmMaxIndex = fmMaxIndex,
+            fmHighHarmonicBlend = fmHighHarmonicBlend,
+            fmModFrequency = fmModFrequency,
+            fmModIndex = fmModIndex,
+            samplingBaseFrequency = samplingBaseFrequency,
+            samplingStartFrame = samplingStartFrame,
+            samplingEndFrame = samplingEndFrame,
+            samplingChannels = samplingChannels,
+            samplingTotalFrames = samplingTotalFrames,
+            amplitudes = (float[])AmplitudesLv.Clone(),
+            wavetable = wavetable != null ? (float[])wavetable.Clone() : new float[0],
+            samplingData = samplingData != null ? (float[])samplingData.Clone() : new float[0],
+            audioClipAdsrData = audioClipADSRData != null ? (float[])audioClipADSRData.Clone() : new float[0]
+        };
+
+        if (proceduralSynthVoice != null)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            Debug.Log($"[Osc] SyncExternalBackend force={force} waveform={FormType} level={config.level} noteActive={noteIsActive}");
+#endif
+            proceduralSynthVoice.UpdateConfig(config);
+        }
+
+        externalBackendDirty = false;
+    }
+
+    private float GetEffectiveOutputLevel()
+    {
+        float audioSourceVolume = OscAudio != null ? OscAudio.volume : 1f;
+        bool isMuted = OscAudio != null && OscAudio.mute;
+        return isMuted ? 0f : Level * audioSourceVolume;
     }
 }

@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 public class SoundManager1 : MonoBehaviour
 {
-    public OSC OSC1, OSC2, OSC3, OSC4, OSC5, OSC6, OSC7, OSC8, OSC9, OSC10;
+    public Osc OSC1, OSC2, OSC3, OSC4, OSC5, OSC6, OSC7, OSC8, OSC9, OSC10;
     //OSC2, OSC3, OSC4, OSC5;
     //public AudioSource Kick, Snare;
 
@@ -90,38 +90,32 @@ public class SoundManager1 : MonoBehaviour
         corchea = 20 / tempo;
         semicorchea = 10 / tempo;
 
-        OSC1.Octava = 1;
-        OSC1.waveformType = OSC.WaveformType.Sine;
+        ConfigureOsc(OSC1, 1, Osc.WaveFormType.Sine);
 
-        OSC2.waveformType = OSC.WaveformType.WhiteNoise;
-        OSC10.waveformType = OSC.WaveformType.WhiteNoise;
+        ConfigureOsc(OSC2, OSC2.Octava, Osc.WaveFormType.WhiteNoise);
+        ConfigureOsc(OSC10, OSC10.Octava, Osc.WaveFormType.WhiteNoise);
 
-        OSC3.waveformType = OSC.WaveformType.WhiteNoise;
+        ConfigureOsc(OSC3, OSC3.Octava, Osc.WaveFormType.WhiteNoise);
 
-        OSC4.waveformType = OSC.WaveformType.WhiteNoise;
+        ConfigureOsc(OSC4, OSC4.Octava, Osc.WaveFormType.WhiteNoise);
 
         OSC3.Aud.mute = true;
         OSC4.Aud.mute = true;
 
-        OSC5.Octava = 2;
-        OSC5.waveformType = OSC.WaveformType.Square;
+        ConfigureOsc(OSC5, 2, Osc.WaveFormType.Square);
         OSC5.Aud.mute = true;
 
 
-        OSC6.Octava = 4;
-        OSC6.waveformType = OSC.WaveformType.Sawtooth;
+        ConfigureOsc(OSC6, 4, Osc.WaveFormType.Sawtooth);
         OSC6.Aud.mute = true;
 
-        OSC7.Octava = 5;
-        OSC7.waveformType = OSC.WaveformType.Sawtooth;
+        ConfigureOsc(OSC7, 5, Osc.WaveFormType.Sawtooth);
         OSC7.Aud.mute = true;
 
-        OSC8.Octava = 5;
-        OSC8.waveformType = OSC.WaveformType.Sawtooth;
+        ConfigureOsc(OSC8, 5, Osc.WaveFormType.Sawtooth);
         OSC8.Aud.mute = true;
 
-        OSC9.Octava = 5;
-        OSC9.waveformType = OSC.WaveformType.Sawtooth;
+        ConfigureOsc(OSC9, 5, Osc.WaveFormType.Sawtooth);
         OSC9.Aud.mute = true;
 
 
@@ -249,9 +243,16 @@ public class SoundManager1 : MonoBehaviour
         }
     }
     //Primera cancion (Frere Jacques)
-    
+    private void ConfigureOsc(Osc osc, int octave, Osc.WaveFormType waveFormType)
+    {
+        if (osc == null)
+            return;
+
+        osc.OctaveChange(octave);
+        osc.WaveFormChange(waveFormType);
+        osc.MarkExternalBackendDirty();
+    }
 
 
 }
-
 

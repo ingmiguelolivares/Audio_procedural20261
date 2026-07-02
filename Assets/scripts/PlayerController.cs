@@ -1,18 +1,20 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using TMPro;
 
 public class PlayerController : MonoBehaviour
 {
     
-    public float moveDistance = 0.1f;   // Distance to move horizontally (1 unit)
+    public float moveDistance = 1f;
     public float jumpForce = 5.0f;      // Force applied to jump
     public bool isGrounded;      // Check if the player is on the ground
 
     private Animator animator;
     private int movement = 1;
+    private int currentLane = 1;
+    private const int MinLane = 0;
+    private const int MaxLane = 2;
 
     private Rigidbody rb;
 
@@ -27,7 +29,7 @@ public class PlayerController : MonoBehaviour
     bool SnareCheck = false, BassCheck = false, ChordsCheck = false, MelodyCheck = false, 
                     KickCheck = false, AllCheck = false, NoneCheck = false ;
 
-    public OSC OSC1, OSC2, OSC3;
+    public Osc OSC1, OSC2, OSC3;
 
     public AudioSource Aud;
 
@@ -45,17 +47,18 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        if (transform.position.x <= center.x + 1 && transform.position.x >= center.x - 1){
-            // Check for horizontal movement (left or right)
-            if (Input.GetKeyDown(KeyCode.LeftArrow))
-            {
-                Move(-moveDistance);   // Move left by one unit
-            }
-            else if (Input.GetKeyDown(KeyCode.RightArrow))
-            {
-                Move(moveDistance);    // Move right by one unit
-            }
+        if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || Input.touchCount > 0)
+        {
+            ProceduralSynthVoice.TryUnlockWebAudio();
+        }
 
+        if (Input.GetKeyDown(KeyCode.LeftArrow))
+        {
+            MoveToLane(currentLane - 1);
+        }
+        else if (Input.GetKeyDown(KeyCode.RightArrow))
+        {
+            MoveToLane(currentLane + 1);
         }
         
 
@@ -83,10 +86,14 @@ public class PlayerController : MonoBehaviour
         ScoreText.SetText(Score.ToString());
     }
 
-    void Move(float distance)
+    void MoveToLane(int lane)
     {
-        // Move the object by the specified distance in the x-axis
-        transform.position += new Vector3(distance, 0, 0);
+        currentLane = Mathf.Clamp(lane, MinLane, MaxLane);
+
+        float xOffset = (currentLane - 1) * moveDistance;
+        Vector3 position = transform.position;
+        position.x = center.x + xOffset;
+        transform.position = position;
     }
 
     void Jump()
@@ -181,7 +188,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator UnMuteSnare()
     {
-        OSC1.Octava = 6;
+        OSC1.OctaveChange(6);
         
         SnareCheck = true;
         SManager.OSC3.Aud.mute = false;
@@ -201,7 +208,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator UnMuteBass()
     {
-        OSC1.Octava = 6;
+        OSC1.OctaveChange(6);
         BassCheck = true;
         SManager.OSC5.Aud.mute = false;
         OSC1.KeyboardDown("C");
@@ -217,7 +224,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator UnMuteMelody()
     {
-       OSC1.Octava = 6;
+       OSC1.OctaveChange(6);
        MelodyCheck = true;
         SManager.OSC6.Aud.mute = false;
         OSC1.KeyboardDown("C");
@@ -233,7 +240,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator UnMuteChords()
     {
-        OSC1.Octava = 6;
+        OSC1.OctaveChange(6);
         ChordsCheck = true;
         SManager.OSC7.Aud.mute = false;
         SManager.OSC8.Aud.mute = false;
@@ -253,7 +260,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator UnMuteAll()
     {
-        OSC2.Octava = 5;
+        OSC2.OctaveChange(5);
         AllCheck = true;
         SManager.OSC1.Aud.mute = false;
         SManager.OSC2.Aud.mute = false;
@@ -292,7 +299,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator MuteAll()
     {
-        OSC2.Octava = 5;
+        OSC2.OctaveChange(5);
         NoneCheck = true;
         SManager.OSC1.Aud.mute = true;
         SManager.OSC2.Aud.mute = true;
@@ -351,4 +358,3 @@ public class PlayerController : MonoBehaviour
         
     }
 }
-

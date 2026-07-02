@@ -37,6 +37,30 @@ public class OSC : MonoBehaviour
 
     public AudioSource Aud;
 
+    [Range(0f, 1f)]
+    public float OutputLevel = 1f;
+
+    [HideInInspector]
+    [Range(-1200f, 1200f)]
+    public float DetuneCents = 0f;
+
+    [Range(0, 4096)]
+    public int detuneFrames = 0;
+
+    [HideInInspector]
+    public bool UseFilterModulation = false;
+
+    [HideInInspector]
+    [Range(0f, 1f)]
+    public float FilterLevel = 0f;
+
+    [HideInInspector]
+    public bool UseDistortion = false;
+
+    [HideInInspector]
+    [Range(0f, 1f)]
+    public float DistortionAmount = 0.35f;
+
     public enum WaveformType
     {
         Sine,
@@ -456,7 +480,7 @@ public class OSC : MonoBehaviour
             /*if (ADSRIndex < env.Length) E = env[ADSRIndex];
             else E = 0.000001f;*/
 
-            E = GetADSRValue(ADSRIndex);
+            E = GetADSRValue(ADSRIndex) * OutputLevel;
             
             
 
@@ -468,53 +492,20 @@ public class OSC : MonoBehaviour
             Z = SineWave(FOscF, TimeIndex);
 
             envA = GetFADSR(TimeIndex);
+            float sample = GenerateCurrentSample(TimeIndex);
+
+            if (detuneFrames > 0 && waveformType != WaveformType.WhiteNoise)
+                sample = (sample + GenerateCurrentSample(TimeIndex + detuneFrames)) * 0.5f;
+
+            sample *= E;
 
             //Z = 1;
             //W = 0;
             //Z = 1;
             //if ((int)GenTypeSl.value == 0)
             //{
-                switch (waveformType)
-                {
-                    case (WaveformType.Sine):
-                        
-                        X = SineWave(frecuencia + Z* envA, TimeIndex);
-                        data[i] = X * E * Y;
-                        if (channels == 2) data[i + 1] = X * E * Y;
-                        
-                        break;
-                    case (WaveformType.Square):
-                       
-                        X = SquareWave((frecuencia + Z)  * W* envA, TimeIndex);
-                        data[i] = X * E * Y;
-                        if (channels == 2) data[i + 1] = X * E * Y;
-                        
-                        break;
-                    case (WaveformType.Triangle):
-                        X = TriangleWave((frecuencia+Z)*W* envA, TimeIndex);
-                        data[i] = X * E * Y;
-                        if (channels == 2) data[i + 1] = X * E * Y;
-                        
-                        break;
-                    case (WaveformType.Sawtooth):
-                        X = SawtoothWave((frecuencia + Z) * W* envA, TimeIndex);
-                        data[i] = X * E * Y;
-                        if (channels == 2) data[i + 1] = X * E * Y;
-                        
-                        break;
-                    case (WaveformType.SA):
-                        X = SA((frecuencia + Z) * W*envA, TimeIndex, Narmonicos);
-                        data[i] = X * E * Y;
-                        if (channels == 2) data[i + 1] = X * E * Y;
-                        
-                        break;
-                    case (WaveformType.WhiteNoise):
-                        X = WhiteNoise(WhiteIndex);
-                        data[i] = X*E;
-                        if (channels == 2) data[i + 1] = X*E;
-                        
-                        break;
-                }
+                data[i] = sample;
+                if (channels == 2) data[i + 1] = sample;
 
                 TimeIndex++;
                 ADSRIndex++;
@@ -525,6 +516,38 @@ public class OSC : MonoBehaviour
             
             
         
+    }
+
+    float GenerateCurrentSample(int timeIndex)
+    {
+        switch (waveformType)
+        {
+            case (WaveformType.Sine):
+                X = SineWave(frecuencia + Z * envA, timeIndex);
+                return X * Y;
+
+            case (WaveformType.Square):
+                X = SquareWave((frecuencia + Z) * W * envA, timeIndex);
+                return X * Y;
+
+            case (WaveformType.Triangle):
+                X = TriangleWave((frecuencia + Z) * W * envA, timeIndex);
+                return X * Y;
+
+            case (WaveformType.Sawtooth):
+                X = SawtoothWave((frecuencia + Z) * W * envA, timeIndex);
+                return X * Y;
+
+            case (WaveformType.SA):
+                X = SA((frecuencia + Z) * W * envA, timeIndex, Narmonicos);
+                return X * Y;
+
+            case (WaveformType.WhiteNoise):
+                X = WhiteNoise(WhiteIndex);
+                return X;
+        }
+
+        return 0f;
     }
 
 }

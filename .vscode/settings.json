@@ -56,5 +56,5 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "TestProcedural.sln"
+    "dotnet.defaultSolution": "Audio_procedural20261.slnx"
 }

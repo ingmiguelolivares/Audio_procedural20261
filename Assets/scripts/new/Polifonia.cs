@@ -308,6 +308,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.detuneCents = detunedValue;
+            osc.MarkExternalBackendDirty();
         }
 
         if (DetunedText != null)
@@ -326,6 +327,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.tremLFOf = tremValue;
+            osc.MarkExternalBackendDirty();
         }
 
         if (TremLFOText != null)
@@ -340,6 +342,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.VibLFOf = vibValue;
+            osc.MarkExternalBackendDirty();
         }
 
         if (VibLFOText != null)
@@ -354,6 +357,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.vibratoDepth = vibratoDepthValue;
+            osc.MarkExternalBackendDirty();
         }
 
         if (VibratoDepthText != null)
@@ -372,6 +376,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.fmModFrequency = value;
+            osc.MarkExternalBackendDirty();
         }
 
         if (FMModFrequencyText != null)
@@ -386,6 +391,7 @@ public class Polifonia : MonoBehaviour
         foreach (var osc in activeOscillators.Values)
         {
             osc.fmModIndex = value;
+            osc.MarkExternalBackendDirty();
         }
 
         if (FMModIndexText != null)
@@ -518,6 +524,7 @@ public class Polifonia : MonoBehaviour
         osc.samplingEndNormalized = SamplingEndValue;
         osc.samplingStartFrame = SamplingStartFrameValue;
         osc.samplingEndFrame = SamplingEndFrameValue;
+        osc.MarkExternalBackendDirty();
     }
 
     // ------------------------------------------------------------
@@ -546,6 +553,7 @@ public class Polifonia : MonoBehaviour
         osc.adsrSourceClip = ADSRClip;
         osc.useAudioClipADSR = UseADSRClipValue;
         osc.BuildAudioClipADSRData();
+        osc.MarkExternalBackendDirty();
     }
 
     // ------------------------------------------------------------
