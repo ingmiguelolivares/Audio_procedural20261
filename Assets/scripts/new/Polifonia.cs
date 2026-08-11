@@ -114,6 +114,8 @@ public class Polifonia : MonoBehaviour
 
     void Start()
     {
+        UpgradeLegacyDefaultPresetIfNeeded();
+
         // ADSR procedural
         if (AttackSlider != null)
             AttackSlider.onValueChanged.AddListener(delegate { UpdateAttack(); });
@@ -235,11 +237,14 @@ public class Polifonia : MonoBehaviour
             UseADSRClipToggle.isOn = UseADSRClipValue;
         }
 
+        ApplyStoredValuesToUIWithoutNotify();
+
         // Inicialización de valores.
         UpdateVolume();
         OctaveChange();
         WaveFormChange();
         ArmonicosChange();
+        AmplitudesChange();
         UpdateAttack();
         UpdateDecay();
         UpdateSustain();
@@ -257,6 +262,152 @@ public class Polifonia : MonoBehaviour
         SamplingStartChange();
         SamplingEndChange();
         ADSRClipToggleChange();
+    }
+
+    private void UpgradeLegacyDefaultPresetIfNeeded()
+    {
+        if (!HasLegacyDefaultPreset())
+            return;
+
+        OctaveValue = 4;
+        WaveformValue = 3;
+        ArmonicosValue = 1;
+
+        AttackValue = 10;
+        DecayValue = 379;
+        SustainValue = 4982;
+        ReleaseValue = 499;
+
+        SustainLevelValue = 0.69f;
+        DetuneCentsValue = 1f;
+        TremLFOValue = 0f;
+        VibLFOValue = 0f;
+        VibratoDepthValue = 0f;
+
+        FMModFrequencyValue = 1.01f;
+        FMModIndexValue = 1f;
+
+        SamplingBaseFrequencyValue = 440f;
+        SamplingStartValue = 0f;
+        SamplingEndValue = 1f;
+        WavetableValue = false;
+
+        if (AmplitudesLv == null || AmplitudesLv.Length != 10)
+            AmplitudesLv = new float[10];
+
+        for (int i = 0; i < AmplitudesLv.Length; i++)
+            AmplitudesLv[i] = 1f;
+    }
+
+    private bool HasLegacyDefaultPreset()
+    {
+        bool hasLegacyScalarValues =
+            OctaveValue == 4 &&
+            WaveformValue == 0 &&
+            ArmonicosValue == 1 &&
+            AttackValue == 5 &&
+            DecayValue == 5 &&
+            SustainValue == 5 &&
+            ReleaseValue == 5 &&
+            Mathf.Approximately(SustainLevelValue, 0.7f) &&
+            Mathf.Approximately(VolumeValue, 0.5f) &&
+            Mathf.Approximately(DetuneCentsValue, 0f) &&
+            Mathf.Approximately(TremLFOValue, 0f) &&
+            Mathf.Approximately(VibLFOValue, 0f) &&
+            Mathf.Approximately(VibratoDepthValue, 5f) &&
+            Mathf.Approximately(FMModFrequencyValue, 220f) &&
+            Mathf.Approximately(FMModIndexValue, 1f) &&
+            Mathf.Approximately(SamplingBaseFrequencyValue, 440f) &&
+            Mathf.Approximately(SamplingStartValue, 0f) &&
+            Mathf.Approximately(SamplingEndValue, 1f) &&
+            !WavetableValue;
+
+        if (!hasLegacyScalarValues)
+            return false;
+
+        if (AmplitudesLv == null || AmplitudesLv.Length == 0)
+            return true;
+
+        for (int i = 0; i < AmplitudesLv.Length; i++)
+        {
+            if (!Mathf.Approximately(AmplitudesLv[i], 0f))
+                return false;
+        }
+
+        return true;
+    }
+
+    private void ApplyStoredValuesToUIWithoutNotify()
+    {
+        if (OctaveSl != null)
+            OctaveSl.SetValueWithoutNotify(OctaveValue);
+
+        if (WaveformSl != null)
+            WaveformSl.SetValueWithoutNotify(WaveformValue);
+
+        if (ArmonicosSl != null)
+            ArmonicosSl.SetValueWithoutNotify(ArmonicosValue);
+
+        if (AttackSlider != null)
+            AttackSlider.SetValueWithoutNotify(AttackValue);
+
+        if (DecaySlider != null)
+            DecaySlider.SetValueWithoutNotify(DecayValue);
+
+        if (SustainSlider != null)
+            SustainSlider.SetValueWithoutNotify(SustainValue);
+
+        if (ReleaseSlider != null)
+            ReleaseSlider.SetValueWithoutNotify(ReleaseValue);
+
+        if (SustainLevelSlider != null)
+            SustainLevelSlider.SetValueWithoutNotify(SustainLevelValue);
+
+        if (VolumeSlider != null)
+            VolumeSlider.SetValueWithoutNotify(VolumeValue);
+
+        if (DetunedSlider != null)
+            DetunedSlider.SetValueWithoutNotify(DetuneCentsValue);
+
+        if (TremLFOFSl != null)
+            TremLFOFSl.SetValueWithoutNotify(TremLFOValue);
+
+        if (VibFOFSl != null)
+            VibFOFSl.SetValueWithoutNotify(VibLFOValue);
+
+        if (VibratoDepthSlider != null)
+            VibratoDepthSlider.SetValueWithoutNotify(VibratoDepthValue);
+
+        if (FMModFrequencySlider != null)
+            FMModFrequencySlider.SetValueWithoutNotify(FMModFrequencyValue);
+
+        if (FMModIndexSlider != null)
+            FMModIndexSlider.SetValueWithoutNotify(FMModIndexValue);
+
+        if (SamplingBaseFrequencySlider != null)
+            SamplingBaseFrequencySlider.SetValueWithoutNotify(SamplingBaseFrequencyValue);
+
+        if (SamplingStartSlider != null)
+            SamplingStartSlider.SetValueWithoutNotify(SamplingStartValue);
+
+        if (SamplingEndSlider != null)
+            SamplingEndSlider.SetValueWithoutNotify(SamplingEndValue);
+
+        if (WavetableToggle != null)
+            WavetableToggle.SetIsOnWithoutNotify(WavetableValue);
+
+        if (UseADSRClipToggle != null)
+            UseADSRClipToggle.SetIsOnWithoutNotify(UseADSRClipValue);
+
+        if (amplitudes == null || AmplitudesLv == null)
+            return;
+
+        int count = Mathf.Min(amplitudes.Length, AmplitudesLv.Length);
+        for (int i = 0; i < count; i++)
+        {
+            if (amplitudes[i] != null)
+                amplitudes[i].SetValueWithoutNotify(AmplitudesLv[i]);
+        }
     }
 
     void Update()

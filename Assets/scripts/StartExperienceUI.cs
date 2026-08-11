@@ -6,7 +6,7 @@ using UnityEngine.UI;
 public class StartExperienceUI : MonoBehaviour
 {
     [TextArea(3, 8)]
-    public string introMessage = "Recoge los elementos correctos para mezclar la canción.\n\nUsa flechas izquierda y derecha para cambiar de carril.\nUsa flecha arriba para saltar.\n\nPulsa Start para activar el audio y comenzar la cuenta regresiva.";
+    public string introMessage = "<size=115%><b>Audio Procedural Runner</b></size>\n\nEste proyecto demuestra <b>audio procedural en tiempo real</b> con síntesis generada por código nativo, compatible con <b>WebGL, desktop y móviles</b>.\n\n<b>Objetivo</b>\nRecoge los elementos correctos para mezclar la canción.\n\n<b>Controles</b>\n• Flechas izquierda y derecha o botones en pantalla para cambiar de carril.\n• Flecha arriba para saltar.\n\nPulsa <b>Iniciar</b> para activar el audio y comenzar la experiencia.";
 
     public GameObject introPanel;
     public TextMeshProUGUI introText;
@@ -53,6 +53,17 @@ public class StartExperienceUI : MonoBehaviour
         StartCoroutine(BeginExperience());
     }
 
+    public void BeginFromExternalTap()
+    {
+        if (hasStarted || isWaitingForAudio)
+        {
+            return;
+        }
+
+        ProceduralSynthVoice.TryUnlockWebAudio();
+        StartCoroutine(BeginExperience());
+    }
+
     private IEnumerator BeginExperience()
     {
         isWaitingForAudio = true;
@@ -60,7 +71,7 @@ public class StartExperienceUI : MonoBehaviour
 #if UNITY_WEBGL && !UNITY_EDITOR
         if (introText != null)
         {
-            introText.SetText("Activando audio...\n\nSi el navegador lo pide, vuelve a pulsar Start.");
+            introText.SetText("Activando audio...\n\nSi el navegador lo pide, vuelve a pulsar Iniciar.");
         }
 
         while (!ProceduralSynthVoice.IsWebAudioUnlocked())

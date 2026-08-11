@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
+using UnityEngine.UI;
 
 public class PlayerController : MonoBehaviour
 {
@@ -35,11 +36,14 @@ public class PlayerController : MonoBehaviour
 
     public AudioClip[] Clips;
 
+    private RectTransform mobileControlsRoot;
+
     void Start()
     {
         rb = GetComponent<Rigidbody>();  // Get the Rigidbody2D component for physics movement
         animator = GetComponent<Animator>();
         center = transform.position;
+        SetupMobileControls();
         StartCoroutine(FootSteps());
         //animator.SetInteger("movement", movement);
         
@@ -94,6 +98,102 @@ public class PlayerController : MonoBehaviour
         Vector3 position = transform.position;
         position.x = center.x + xOffset;
         transform.position = position;
+    }
+
+    public void MoveLeftButtonPressed()
+    {
+        ProceduralSynthVoice.TryUnlockWebAudio();
+        MoveToLane(currentLane - 1);
+    }
+
+    public void MoveRightButtonPressed()
+    {
+        ProceduralSynthVoice.TryUnlockWebAudio();
+        MoveToLane(currentLane + 1);
+    }
+
+    private void SetupMobileControls()
+    {
+        if (!ShouldShowMobileControls())
+        {
+            return;
+        }
+
+        Canvas canvas = FindObjectOfType<Canvas>();
+        if (canvas == null)
+        {
+            return;
+        }
+
+        GameObject controlsRootObject = new GameObject("MobileControls", typeof(RectTransform));
+        controlsRootObject.transform.SetParent(canvas.transform, false);
+        mobileControlsRoot = controlsRootObject.GetComponent<RectTransform>();
+        mobileControlsRoot.anchorMin = new Vector2(0, 0);
+        mobileControlsRoot.anchorMax = new Vector2(1, 0);
+        mobileControlsRoot.pivot = new Vector2(0.5f, 0);
+        mobileControlsRoot.anchoredPosition = new Vector2(0, 16f);
+        mobileControlsRoot.sizeDelta = new Vector2(0, 120f);
+
+        CreateMobileButton("LeftButton", "◀", new Vector2(0, 0), new Vector2(0, 0), new Vector2(90, 90), new Vector2(70, 60), MoveLeftButtonPressed);
+        CreateMobileButton("RightButton", "▶", new Vector2(1, 0), new Vector2(1, 0), new Vector2(90, 90), new Vector2(-70, 60), MoveRightButtonPressed);
+    }
+
+    private bool ShouldShowMobileControls()
+    {
+        if (Application.isMobilePlatform)
+        {
+            return true;
+        }
+
+        return Application.platform == RuntimePlatform.WebGLPlayer && Input.touchSupported;
+    }
+
+    private void CreateMobileButton(string objectName, string label, Vector2 anchorMin, Vector2 anchorMax, Vector2 size, Vector2 anchoredPosition, UnityEngine.Events.UnityAction action)
+    {
+        if (mobileControlsRoot == null)
+        {
+            return;
+        }
+
+        GameObject buttonObject = new GameObject(objectName, typeof(RectTransform), typeof(Image), typeof(Button));
+        buttonObject.transform.SetParent(mobileControlsRoot, false);
+
+        RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
+        buttonRect.anchorMin = anchorMin;
+        buttonRect.anchorMax = anchorMax;
+        buttonRect.pivot = new Vector2(0.5f, 0.5f);
+        buttonRect.sizeDelta = size;
+        buttonRect.anchoredPosition = anchoredPosition;
+
+        Image buttonImage = buttonObject.GetComponent<Image>();
+        buttonImage.color = new Color(0.1f, 0.35f, 0.75f, 0.72f);
+
+        Button button = buttonObject.GetComponent<Button>();
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(1f, 1f, 1f, 0.95f);
+        colors.pressedColor = new Color(0.85f, 0.9f, 1f, 0.95f);
+        colors.selectedColor = colors.highlightedColor;
+        colors.disabledColor = new Color(1f, 1f, 1f, 0.45f);
+        button.colors = colors;
+        button.onClick.AddListener(action);
+
+        GameObject textObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(buttonObject.transform, false);
+
+        RectTransform textRect = textObject.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI labelText = textObject.GetComponent<TextMeshProUGUI>();
+        labelText.text = label;
+        labelText.font = TMP_Settings.defaultFontAsset;
+        labelText.fontSize = 42;
+        labelText.alignment = TextAlignmentOptions.Center;
+        labelText.color = Color.white;
+        labelText.raycastTarget = false;
     }
 
     void Jump()

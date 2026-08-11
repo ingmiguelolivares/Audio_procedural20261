@@ -997,10 +997,6 @@ public class Osc : MonoBehaviour
             InitializeExternalBackendIfNeeded();
             SyncExternalBackendIfNeeded(true);
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[Osc] KeyboardDown note={Note} freq={frecuencia} backend={audioEngineBackend} level={GetEffectiveOutputLevel()} mute={(OscAudio != null && OscAudio.mute)} volume={(OscAudio != null ? OscAudio.volume : 1f)}");
-#endif
-
             if (proceduralSynthVoice != null)
                 proceduralSynthVoice.NoteOn(frecuencia);
 
@@ -1323,12 +1319,7 @@ public class Osc : MonoBehaviour
         };
 
         if (proceduralSynthVoice != null)
-        {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[Osc] SyncExternalBackend force={force} waveform={FormType} level={config.level} noteActive={noteIsActive}");
-#endif
             proceduralSynthVoice.UpdateConfig(config);
-        }
 
         externalBackendDirty = false;
     }

@@ -26,9 +26,7 @@ public class SoundManager1 : MonoBehaviour
     void Start()
     {
         //Application.targetFrameRate = 50;
-        PSong();
-        
-
+        StartCoroutine(BeginSongWhenAudioIsReady());
     }
 
     // Update is called once per frame
@@ -40,8 +38,27 @@ public class SoundManager1 : MonoBehaviour
 
     public void PSong()
     {
+        ProceduralSynthVoice.TryUnlockWebAudio();
         isPlaying = true;
         StartCoroutine(song());
+    }
+
+    private IEnumerator BeginSongWhenAudioIsReady()
+    {
+        ProceduralSynthVoice.TryUnlockWebAudio();
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        float unlockDeadline = Time.unscaledTime + 2f;
+        while (!ProceduralSynthVoice.IsWebAudioUnlocked() && Time.unscaledTime < unlockDeadline)
+        {
+            ProceduralSynthVoice.TryUnlockWebAudio();
+            yield return null;
+        }
+#else
+        yield return null;
+#endif
+
+        PSong();
     }
 
 
@@ -255,4 +272,3 @@ public class SoundManager1 : MonoBehaviour
 
 
 }
-

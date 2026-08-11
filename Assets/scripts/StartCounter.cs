@@ -38,6 +38,7 @@ public class StartCounter : MonoBehaviour
             return;
         }
 
+        ProceduralSynthVoice.TryUnlockWebAudio();
         hasStarted = true;
         countdownTime = InitialCountdownTime;
         StartCoroutine(Countdown());
@@ -45,6 +46,15 @@ public class StartCounter : MonoBehaviour
 
     private IEnumerator Countdown()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        float unlockDeadline = Time.unscaledTime + 2f;
+        while (!ProceduralSynthVoice.IsWebAudioUnlocked() && Time.unscaledTime < unlockDeadline)
+        {
+            ProceduralSynthVoice.TryUnlockWebAudio();
+            yield return null;
+        }
+#endif
+
         yield return new WaitForSeconds(1f); 
         while (countdownTime > 0)
         {

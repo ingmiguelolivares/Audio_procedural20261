@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>{{{ PRODUCT_NAME }}}</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #111827;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #unity-container {
+        position: relative;
+        width: min(100vw, 56.25vh);
+        height: min(100vh, 177.7778vw);
+        aspect-ratio: 9 / 16;
+        margin: 0 auto;
+        background: #111827;
+        overflow: hidden;
+      }
+
+      #unity-canvas {
+        width: 100%;
+        height: 100%;
+      }
+
+      #unity-canvas {
+        display: block;
+        background: #111827;
+      }
+
+      #unity-loading-bar {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: min(70vw, 320px);
+        transform: translate(-50%, -50%);
+        z-index: 5;
+        color: white;
+        text-align: center;
+      }
+
+      #unity-progress-track {
+        width: 100%;
+        height: 10px;
+        margin-top: 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.18);
+        overflow: hidden;
+      }
+
+      #unity-progress-bar {
+        width: 0%;
+        height: 100%;
+        background: #60a5fa;
+      }
+
+      #ios-start-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(17, 24, 39, 0.96);
+        z-index: 20;
+        color: white;
+        text-align: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      #ios-start-card {
+        width: min(92vw, 420px);
+      }
+
+      #ios-start-card h1 {
+        margin: 0 0 12px;
+        font-size: 28px;
+      }
+
+      #ios-start-card p {
+        margin: 0 0 18px;
+        line-height: 1.45;
+        color: rgba(255,255,255,0.88);
+      }
+
+      #ios-start-button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 14px 28px;
+        font-size: 18px;
+        font-weight: 700;
+        color: white;
+        background: #2563eb;
+      }
+
+      #ios-start-status {
+        min-height: 20px;
+        margin-top: 12px;
+        font-size: 14px;
+        color: rgba(255,255,255,0.72);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas" tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div>Loading...</div>
+        <div id="unity-progress-track">
+          <div id="unity-progress-bar"></div>
+        </div>
+      </div>
+      <div id="ios-start-overlay">
+        <div id="ios-start-card">
+          <h1>Tap to start</h1>
+          <p>On iPhone and iPad, the first tap unlocks Web Audio and then starts the experience.</p>
+          <button id="ios-start-button" type="button">Tap to start</button>
+          <div id="ios-start-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBar = document.querySelector("#unity-progress-bar");
+      var iosStartOverlay = document.querySelector("#ios-start-overlay");
+      var iosStartButton = document.querySelector("#ios-start-button");
+      var iosStartStatus = document.querySelector("#ios-start-status");
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/{{{ LOADER_FILENAME }}}";
+      var unityInstance = null;
+      var unityBootStarted = false;
+
+      var config = {
+        dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+        frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+        codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+#if MEMORY_FILENAME
+        memoryUrl: buildUrl + "/{{{ MEMORY_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+        symbolsUrl: buildUrl + "/{{{ SYMBOLS_FILENAME }}}",
+#endif
+#if USE_THREADS
+        workerUrl: buildUrl + "/{{{ WORKER_FILENAME }}}",
+#endif
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "{{{ COMPANY_NAME }}}",
+        productName: "{{{ PRODUCT_NAME }}}",
+        productVersion: "{{{ PRODUCT_VERSION }}}"
+      };
+
+      function isAppleMobileWeb() {
+        var ua = navigator.userAgent || "";
+        var iOSDevice = /iPad|iPhone|iPod/.test(ua);
+        var iPadDesktopUA = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+        return iOSDevice || iPadDesktopUA;
+      }
+
+      function warmupIosOutput(ctx) {
+        if (!ctx) return;
+        try {
+          var buffer = ctx.createBuffer(1, 1, Math.max(22050, ctx.sampleRate || 44100));
+          var source = ctx.createBufferSource();
+          var gain = ctx.createGain();
+          gain.gain.value = 0.00001;
+          source.buffer = buffer;
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          source.start(0);
+          if (source.stop) source.stop(0.001);
+        } catch (e) {
+        }
+
+        if (isAppleMobileWeb()) {
+          try {
+            var osc = ctx.createOscillator();
+            var oscGain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            oscGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+            oscGain.gain.linearRampToValueAtTime(0.015, ctx.currentTime + 0.005);
+            oscGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.03);
+            osc.connect(oscGain);
+            oscGain.connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.03);
+          } catch (e2) {
+          }
+        }
+      }
+
+      function primeHtmlMediaPlayback() {
+        if (!isAppleMobileWeb()) {
+          return;
+        }
+
+        try {
+          var sampleRate = 8000;
+          var numSamples = 8;
+          var dataSize = numSamples * 2;
+          var buffer = new ArrayBuffer(44 + dataSize);
+          var view = new DataView(buffer);
+
+          function writeString(offset, value) {
+            for (var index = 0; index < value.length; index++) {
+              view.setUint8(offset + index, value.charCodeAt(index));
+            }
+          }
+
+          writeString(0, "RIFF");
+          view.setUint32(4, 36 + dataSize, true);
+          writeString(8, "WAVE");
+          writeString(12, "fmt ");
+          view.setUint32(16, 16, true);
+          view.setUint16(20, 1, true);
+          view.setUint16(22, 1, true);
+          view.setUint32(24, sampleRate, true);
+          view.setUint32(28, sampleRate * 2, true);
+          view.setUint16(32, 2, true);
+          view.setUint16(34, 16, true);
+          writeString(36, "data");
+          view.setUint32(40, dataSize, true);
+
+          for (var sampleIndex = 0; sampleIndex < numSamples; sampleIndex++) {
+            view.setInt16(44 + (sampleIndex * 2), 0, true);
+          }
+
+          var blob = new Blob([buffer], { type: "audio/wav" });
+          var url = URL.createObjectURL(blob);
+          var audio = new Audio();
+          audio.preload = "auto";
+          audio.playsInline = true;
+          audio.muted = false;
+          audio.volume = 0.001;
+          audio.src = url;
+
+          var playPromise = audio.play();
+          if (playPromise && typeof playPromise.then === "function") {
+            playPromise.then(function() {
+              setTimeout(function() {
+                audio.pause();
+                audio.removeAttribute("src");
+                audio.load();
+                URL.revokeObjectURL(url);
+              }, 60);
+            }).catch(function() {
+              URL.revokeObjectURL(url);
+            });
+          } else {
+            setTimeout(function() {
+              audio.pause();
+              audio.removeAttribute("src");
+              audio.load();
+              URL.revokeObjectURL(url);
+            }, 60);
+          }
+        } catch (e) {
+        }
+      }
+
+      function primeProceduralAudioFromGesture() {
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+
+        if (!window.ProceduralSynthState) {
+          window.ProceduralSynthState = {
+            ctx: null,
+            node: null,
+            master: null,
+            driver: null,
+            unlockListenersInstalled: false
+          };
+        }
+
+        var state = window.ProceduralSynthState;
+        if (!state.ctx) {
+          state.ctx = new AudioCtx();
+        }
+
+        window.ProceduralSynthWarmupIosOutput = window.ProceduralSynthWarmupIosOutput || warmupIosOutput;
+        warmupIosOutput(state.ctx);
+
+        if (state.ctx.state === "suspended") {
+          try {
+            var resumePromise = state.ctx.resume();
+            if (resumePromise && typeof resumePromise.then === "function") {
+              resumePromise.then(function() {
+                warmupIosOutput(state.ctx);
+              });
+            }
+          } catch (e) {
+          }
+        }
+      }
+
+      function startUnityRuntime() {
+        if (unityBootStarted) {
+          return;
+        }
+
+          unityBootStarted = true;
+
+        var script = document.createElement("script");
+        script.src = loaderUrl;
+        script.onload = function() {
+          createUnityInstance(canvas, config, function(progress) {
+            progressBar.style.width = (100 * progress) + "%";
+          }).then(function(instance) {
+            unityInstance = instance;
+            loadingBar.style.display = "none";
+
+          }).catch(function(message) {
+            alert(message);
+          });
+        };
+        document.body.appendChild(script);
+      }
+
+      if (isAppleMobileWeb()) {
+        iosStartOverlay.style.display = "flex";
+        iosStartButton.addEventListener("click", function() {
+          if (unityBootStarted) {
+            return;
+          }
+
+          iosStartButton.disabled = true;
+          iosStartStatus.textContent = "Unlocking audio and loading scene...";
+          primeHtmlMediaPlayback();
+          primeProceduralAudioFromGesture();
+          iosStartOverlay.style.display = "none";
+          startUnityRuntime();
+        }, { passive: true });
+      } else {
+        startUnityRuntime();
+      }
+    </script>
+  </body>
+</html>

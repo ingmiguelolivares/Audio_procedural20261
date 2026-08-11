@@ -28,17 +28,11 @@ public class ProceduralSynthVoice : IDisposable
 
         if (!EnsureNativeVoice())
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.LogWarning("[ProceduralSynthVoice] EnsureNativeVoice returned false in UpdateConfig");
-#endif
             return;
         }
 
         try
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[ProceduralSynthVoice] UpdateConfig handle={nativeHandle} waveform={config.waveform} level={config.level}");
-#endif
             SetCore(nativeHandle, config);
 
             float[] amplitudes = config.amplitudes ?? Array.Empty<float>();
@@ -55,9 +49,6 @@ public class ProceduralSynthVoice : IDisposable
         }
         catch (Exception)
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.LogWarning("[ProceduralSynthVoice] UpdateConfig failed, disabling native backend");
-#endif
             DisableNativeBackend();
         }
     }
@@ -68,24 +59,15 @@ public class ProceduralSynthVoice : IDisposable
 
         if (!EnsureNativeVoice())
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.LogWarning($"[ProceduralSynthVoice] EnsureNativeVoice returned false in NoteOn freq={frequency}");
-#endif
             return;
         }
 
         try
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[ProceduralSynthVoice] NoteOn handle={nativeHandle} freq={frequency}");
-#endif
             NoteOnNative(nativeHandle, frequency);
         }
         catch (Exception)
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.LogWarning("[ProceduralSynthVoice] NoteOn failed, disabling native backend");
-#endif
             DisableNativeBackend();
         }
     }
@@ -187,20 +169,11 @@ public class ProceduralSynthVoice : IDisposable
 
         try
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[ProceduralSynthVoice] Creating native voice sr={sampleRate} ch={channels}");
-#endif
             nativeHandle = CreateVoice(sampleRate, channels);
             useNativeBackend = nativeHandle >= 0;
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.Log($"[ProceduralSynthVoice] CreateVoice result handle={nativeHandle} useNativeBackend={useNativeBackend}");
-#endif
         }
         catch (Exception)
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            Debug.LogWarning("[ProceduralSynthVoice] CreateVoice threw, disabling native backend");
-#endif
             DisableNativeBackend();
         }
 
@@ -209,9 +182,6 @@ public class ProceduralSynthVoice : IDisposable
 
     private void DisableNativeBackend()
     {
-#if UNITY_WEBGL && !UNITY_EDITOR
-        Debug.LogWarning($"[ProceduralSynthVoice] DisableNativeBackend handle={nativeHandle}");
-#endif
         nativeHandle = -1;
         useNativeBackend = false;
         triedNativeInit = true;

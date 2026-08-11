@@ -6,10 +6,13 @@ mergeInto(LibraryManager.library, {
         node: null,
         master: null,
         driver: null,
-        didLogAudioProcess: false,
-        callbackCount: 0,
-        debugCallbacksRemaining: 0,
-        listenersInstalled: false
+        mediaDestination: null,
+        mediaElement: null,
+        unlockListenersInstalled: false,
+        debugLoggedUnlock: false,
+        debugLoggedProcess: false,
+        debugProcessCounter: 0,
+        debugLastActiveVoices: -1
       };
     }
 
@@ -18,11 +21,59 @@ mergeInto(LibraryManager.library, {
     if (!AudioCtx) return;
 
     if (!globalThis.ProceduralSynthEnsureAudioUnlocked) {
+      globalThis.ProceduralSynthIsAppleMobileWeb = function() {
+        var ua = globalThis.navigator && globalThis.navigator.userAgent ? globalThis.navigator.userAgent : "";
+        var platform = globalThis.navigator && globalThis.navigator.platform ? globalThis.navigator.platform : "";
+        var touchPoints = globalThis.navigator && typeof globalThis.navigator.maxTouchPoints === "number" ? globalThis.navigator.maxTouchPoints : 0;
+        return /iPad|iPhone|iPod/.test(ua) || (platform === "MacIntel" && touchPoints > 1);
+      };
+
+      globalThis.ProceduralSynthWarmupIosOutput = function(ctx) {
+        if (!ctx) return;
+        try {
+          var buffer = ctx.createBuffer(1, 1, Math.max(22050, ctx.sampleRate || 44100));
+          var source = ctx.createBufferSource();
+          var gain = ctx.createGain();
+          gain.gain.value = 0.00001;
+          source.buffer = buffer;
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          source.start(0);
+          if (source.stop) source.stop(0.001);
+        } catch (e) {
+        }
+
+        if (globalThis.ProceduralSynthIsAppleMobileWeb && globalThis.ProceduralSynthIsAppleMobileWeb()) {
+          if (globalThis.primeHtmlMediaPlayback) {
+            try {
+              globalThis.primeHtmlMediaPlayback();
+            } catch (mediaPrimeError) {
+            }
+          }
+
+          try {
+            var osc = ctx.createOscillator();
+            var oscGain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            oscGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+            oscGain.gain.linearRampToValueAtTime(0.015, ctx.currentTime + 0.005);
+            oscGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.03);
+            osc.connect(oscGain);
+            oscGain.connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.03);
+          } catch (e2) {
+          }
+        }
+      };
+
       globalThis.ProceduralSynthEnsureAudioUnlocked = function() {
         if (!globalThis.ProceduralSynthState) return;
         var innerState = globalThis.ProceduralSynthState;
         var InnerAudioCtx = globalThis.AudioContext || globalThis.webkitAudioContext;
         if (!InnerAudioCtx) return;
+        var preferMediaElementOutput = globalThis.ProceduralSynthIsAppleMobileWeb && globalThis.ProceduralSynthIsAppleMobileWeb();
 
         if (!innerState.ctx) {
           innerState.ctx = new InnerAudioCtx();
@@ -39,15 +90,11 @@ mergeInto(LibraryManager.library, {
             left.fill(0);
             if (right !== left) right.fill(0);
 
-            if (!innerState.didLogAudioProcess) {
-              innerState.didLogAudioProcess = true;
-              console.log("[ProceduralSynth] ScriptProcessor active");
-            }
-
             var voices = globalThis.ProceduralSynthVoices || {};
             var handles = Object.keys(voices);
-            var activeVoiceCount = 0;
+            var activeVoices = 0;
             var peak = 0;
+            var invalidSamples = 0;
 
             function sine(v, f, t) { return Math.sin(2 * Math.PI * f * t / v.sampleRate); }
             function adsr(v, t) {
@@ -133,12 +180,18 @@ mergeInto(LibraryManager.library, {
               }
             }
 
+            for (var handleIndex = 0; handleIndex < handles.length; handleIndex++) {
+              var activeVoice = voices[handles[handleIndex]];
+              if (activeVoice && activeVoice.active && activeVoice.frequency > 0 && activeVoice.level > 0) {
+                activeVoices++;
+              }
+            }
+
             for (var sampleIndex = 0; sampleIndex < left.length; sampleIndex++) {
               var mixed = 0;
               for (var handleIndex = 0; handleIndex < handles.length; handleIndex++) {
                 var v = voices[handles[handleIndex]];
                 if (!v || !v.active || v.frequency <= 0 || v.level <= 0) continue;
-                activeVoiceCount++;
 
                 var t = v.timeIndex;
                 var env = adsr(v, t);
@@ -149,64 +202,137 @@ mergeInto(LibraryManager.library, {
                 mixed += v.level * 0.5 * (gen(v, currentFreq, t, true) + gen(v, detunedFreq, t, false)) * env * trem;
                 v.timeIndex++;
               }
+              if (!isFinite(mixed)) {
+                invalidSamples++;
+                mixed = 0;
+              }
+              if (Math.abs(mixed) > peak) {
+                peak = Math.abs(mixed);
+              }
+              mixed = Math.max(-1, Math.min(1, mixed));
               left[sampleIndex] = mixed;
               if (right !== left) right[sampleIndex] = mixed;
-              var absMixed = Math.abs(mixed);
-              if (absMixed > peak) peak = absMixed;
             }
 
-            innerState.callbackCount++;
-            if (innerState.debugCallbacksRemaining > 0) {
-              innerState.debugCallbacksRemaining--;
-              var snapshot = [];
-              for (var debugIndex = 0; debugIndex < handles.length; debugIndex++) {
-                var debugVoice = voices[handles[debugIndex]];
-                if (!debugVoice) continue;
-                snapshot.push(
-                  handles[debugIndex] +
-                  "{active=" + !!debugVoice.active +
-                  ",freq=" + debugVoice.frequency +
-                  ",level=" + debugVoice.level +
-                  ",time=" + debugVoice.timeIndex + "}"
-                );
-              }
-              console.log("[ProceduralSynth] DebugVoices activeVoices=" + activeVoiceCount + " peak=" + peak.toFixed(6) + " " + snapshot.join(" "));
+            innerState.debugProcessCounter++;
+            if (!innerState.debugLoggedProcess) {
+              innerState.debugLoggedProcess = true;
+              console.log("[ProceduralSynth] onaudioprocess started", "sampleRate=", innerState.ctx.sampleRate, "channels=", evt.outputBuffer.numberOfChannels);
             }
 
-            if ((innerState.callbackCount % 60) === 0) {
-              console.log("[ProceduralSynth] MixStats activeVoices=" + activeVoiceCount + " peak=" + peak.toFixed(6));
+            if (activeVoices !== innerState.debugLastActiveVoices) {
+              innerState.debugLastActiveVoices = activeVoices;
+              console.log("[ProceduralSynth] activeVoices=", activeVoices);
+              console.log("[ProceduralSynth] mixSnapshot", "activeVoices=", activeVoices, "peak=", peak, "invalidSamples=", invalidSamples);
+            }
+
+            if ((innerState.debugProcessCounter % 180) === 0) {
+              console.log("[ProceduralSynth] processTick", "count=", innerState.debugProcessCounter, "activeVoices=", activeVoices, "peak=", peak, "invalidSamples=", invalidSamples);
             }
           };
 
-          if (innerState.ctx.createConstantSource) {
+          var preferOscillatorDriver = globalThis.ProceduralSynthIsAppleMobileWeb && globalThis.ProceduralSynthIsAppleMobileWeb();
+          if (preferOscillatorDriver && innerState.ctx.createOscillator) {
+            innerState.driver = innerState.ctx.createOscillator();
+            var iosDriverGain = innerState.ctx.createGain();
+            iosDriverGain.gain.value = 1.0;
+            innerState.driver.frequency.value = 220;
+            innerState.driver.connect(iosDriverGain);
+            iosDriverGain.connect(innerState.node);
+            innerState.driver.start();
+          } else if (innerState.ctx.createConstantSource) {
             innerState.driver = innerState.ctx.createConstantSource();
-            innerState.driver.offset.value = 0;
+            innerState.driver.offset.value = 0.000001;
             innerState.driver.connect(innerState.node);
+            innerState.driver.start();
+          } else if (innerState.ctx.createOscillator) {
+            innerState.driver = innerState.ctx.createOscillator();
+            var driverGain = innerState.ctx.createGain();
+            driverGain.gain.value = 0.000001;
+            innerState.driver.frequency.value = 20;
+            innerState.driver.connect(driverGain);
+            driverGain.connect(innerState.node);
             innerState.driver.start();
           }
 
           innerState.node.connect(innerState.master);
-          innerState.master.connect(innerState.ctx.destination);
-          console.log("[ProceduralSynth] WebAudio graph created");
+
+          if (preferMediaElementOutput && innerState.ctx.createMediaStreamDestination) {
+            try {
+              innerState.mediaDestination = innerState.ctx.createMediaStreamDestination();
+              innerState.master.connect(innerState.mediaDestination);
+
+              innerState.mediaElement = globalThis.document ? globalThis.document.createElement("audio") : null;
+              if (innerState.mediaElement) {
+                innerState.mediaElement.autoplay = true;
+                innerState.mediaElement.playsInline = true;
+                innerState.mediaElement.muted = false;
+                innerState.mediaElement.volume = 1.0;
+                innerState.mediaElement.srcObject = innerState.mediaDestination.stream;
+              }
+            } catch (mediaDestinationError) {
+              innerState.mediaDestination = null;
+              innerState.mediaElement = null;
+            }
+          }
+
+          if (!innerState.mediaDestination) {
+            innerState.master.connect(innerState.ctx.destination);
+          }
+        }
+
+        if (globalThis.ProceduralSynthWarmupIosOutput) {
+          globalThis.ProceduralSynthWarmupIosOutput(innerState.ctx);
+        }
+
+        if (preferMediaElementOutput && innerState.mediaElement && innerState.mediaElement.paused) {
+          try {
+            var mediaPlayPromise = innerState.mediaElement.play();
+            if (mediaPlayPromise && typeof mediaPlayPromise.catch === "function") {
+              mediaPlayPromise.catch(function() {
+              });
+            }
+          } catch (mediaPlayError) {
+          }
         }
 
         if (innerState.ctx.state === "suspended") {
-          innerState.ctx.resume();
+          try {
+            var resumePromise = innerState.ctx.resume();
+            if (resumePromise && typeof resumePromise.then === "function") {
+              resumePromise.then(function() {
+                if (globalThis.ProceduralSynthWarmupIosOutput) {
+                  globalThis.ProceduralSynthWarmupIosOutput(innerState.ctx);
+                }
+              });
+            }
+          } catch (e) {
+          }
+        }
+
+        if (!innerState.debugLoggedUnlock && innerState.ctx) {
+          innerState.debugLoggedUnlock = true;
+          console.log("[ProceduralSynth] unlock state=", innerState.ctx.state, "sampleRate=", innerState.ctx.sampleRate);
         }
       };
     }
 
-    if (!state.listenersInstalled) {
-      state.listenersInstalled = true;
+    if (!state.unlockListenersInstalled) {
+      state.unlockListenersInstalled = true;
       var unlockHandler = function() {
         if (globalThis.ProceduralSynthEnsureAudioUnlocked) {
           globalThis.ProceduralSynthEnsureAudioUnlocked();
         }
       };
-      globalThis.addEventListener("pointerdown", unlockHandler, { passive: true });
-      globalThis.addEventListener("touchend", unlockHandler, { passive: true });
-      globalThis.addEventListener("keydown", unlockHandler, { passive: true });
-      globalThis.addEventListener("click", unlockHandler, { passive: true });
+      var targets = [globalThis, globalThis.document, globalThis.document ? globalThis.document.body : null, globalThis.Module ? globalThis.Module.canvas : null];
+      var events = ["pointerdown", "touchstart", "touchend", "mousedown", "click", "keydown"];
+      for (var targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        var target = targets[targetIndex];
+        if (!target || !target.addEventListener) continue;
+        for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
+          target.addEventListener(events[eventIndex], unlockHandler, { passive: true, capture: true });
+        }
+      }
     }
 
     globalThis.ProceduralSynthEnsureAudioUnlocked();
@@ -259,7 +385,6 @@ mergeInto(LibraryManager.library, {
       samplingData: [],
       adsrData: []
     };
-    console.log("[ProceduralSynth] CreateVoice", handle, "sr=", sampleRate, "ch=", channels);
     if (globalThis.ProceduralSynthEnsureAudioUnlocked) {
       globalThis.ProceduralSynthEnsureAudioUnlocked();
     } else {
@@ -270,10 +395,7 @@ mergeInto(LibraryManager.library, {
           node: null,
           master: null,
           driver: null,
-          didLogAudioProcess: false,
-          callbackCount: 0,
-          debugCallbacksRemaining: 0,
-          listenersInstalled: false
+          unlockListenersInstalled: false
         };
       }
     }
@@ -334,10 +456,7 @@ mergeInto(LibraryManager.library, {
     v.timeIndex = 0;
     v.samplingReadPosition = v.samplingStartFrame;
     v.active = true;
-    console.log("[ProceduralSynth] NoteOn", handle, frequency, "level=", v.level, "wave=", v.waveform);
-    if (globalThis.ProceduralSynthState) {
-      globalThis.ProceduralSynthState.debugCallbacksRemaining = 8;
-    }
+    console.log("[ProceduralSynth] NoteOn", "handle=", handle, "frequency=", frequency);
   },
   PSW_NoteOff: function(handle) {
     var v = globalThis.ProceduralSynthVoices[handle];
@@ -346,7 +465,7 @@ mergeInto(LibraryManager.library, {
     v.frequency = 0;
     v.timeIndex = 0;
     v.samplingReadPosition = v.samplingStartFrame;
-    console.log("[ProceduralSynth] NoteOff", handle);
+    console.log("[ProceduralSynth] NoteOff", "handle=", handle);
   },
   PSW_Render: function(handle, dataPtr, sampleCount) {
     var v = globalThis.ProceduralSynthVoices[handle];
