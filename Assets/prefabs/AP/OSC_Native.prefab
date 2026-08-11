@@ -19,7 +19,7 @@ GameObject:
   - component: {fileID: 527692337149573056}
   - component: {fileID: 6116706416737840700}
   m_Layer: 0
-  m_Name: OSC
+  m_Name: OSC_Native
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -54,7 +54,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   frecuencia: 0
   tremLFOf: 0
-  LFO2F: 0
+  VibLFOf: 0
+  vibratoDepth: 5
+  fmMacroAmount: 0
+  fmMinRatio: 1
+  fmMaxRatio: 5
+  fmMaxIndex: 8
+  fmHighHarmonicBlend: 0
+  fmModFrequency: 220
+  fmModIndex: 1
+  samplingClip: {fileID: 0}
+  samplingBaseFrequency: 440
+  samplingStartNormalized: 0
+  samplingEndNormalized: 1
+  samplingStartFrame: 0
+  samplingEndFrame: 0
   Octava: 0
   Narmonicos: 0
   Level: 0
@@ -62,16 +76,20 @@ MonoBehaviour:
   audioEngineBackend: 1
   streamingChannels: 2
   streamingClipSeconds: 1
+  adsrSourceClip: {fileID: 0}
+  useAudioClipADSR: 0
+  autoUseWavetableForSamplingAndCustom: 1
   sineWavetableLoader: {fileID: 8223514467318284059}
   squareWavetableLoader: {fileID: 5930893517081611830}
   sawtoothWavetableLoader: {fileID: 6116706416737840700}
   triangleWavetableLoader: {fileID: 527692337149573056}
   saWavetableLoader: {fileID: 0}
+  samplingWavetableLoader: {fileID: 0}
   custom1WavetableLoader: {fileID: 6336589205689153257}
   custom2WavetableLoader: {fileID: 4786086312404917010}
   custom3WavetableLoader: {fileID: 2212152076703963419}
+  detuneCents: 0
   detuneFrames: 0
-  TremLFOFSl: {fileID: 0}
   FormType: 0
   AmplitudesLv:
   - 0
@@ -84,11 +102,40 @@ MonoBehaviour:
   - 0
   - 0
   - 0
+  OutputLevel: 1
+  Aud: {fileID: 0}
+  waveformType: 0
+  Amplitudes:
+  - 1
+  - 0.7
+  - 0.8
+  - 0.6
+  - 0.5
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.4
+  SLegacy: 0.7
+  AF: 5
+  DF: 10
+  LowEnvAF: 1
+  HighEnvDF: 1
+  FreqAlt: 1.5
+  W: 1
+  UseFilterModulation: 0
+  FilterLevel: 0
+  UseDistortion: 0
+  DistortionAmount: 0.35
   A: 5
   D: 5
   S: 5
   SL: 0.7
   R: 5
+  attackUsesLogCurve: 0
+  decayUsesLogCurve: 0
+  sustainUsesLogCurve: 0
+  releaseUsesLogCurve: 0
 --- !u!82 &1700227820751751710
 AudioSource:
   m_ObjectHideFlags: 0

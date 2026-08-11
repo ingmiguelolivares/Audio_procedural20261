@@ -172,6 +172,9 @@ public class Osc : MonoBehaviour
     private ProceduralSynthVoice proceduralSynthVoice;
     private bool externalBackendDirty = true;
     private bool noteIsActive = false;
+    private bool releaseTriggered = false;
+    private int releaseStartTimeIndex = 0;
+    private float releaseStartLevel = 0f;
     private bool legacyValuesApplied = false;
     private bool lastMuteState = false;
     private float lastAudioSourceVolume = 1f;
@@ -764,6 +767,10 @@ public class Osc : MonoBehaviour
     public float S = 5;
     public float SL = 0.7f;
     public float R = 5;
+    public bool attackUsesLogCurve = false;
+    public bool decayUsesLogCurve = false;
+    public bool sustainUsesLogCurve = false;
+    public bool releaseUsesLogCurve = false;
 
     public void UpdateADSR()
     {
@@ -907,6 +914,18 @@ public class Osc : MonoBehaviour
     // Calcula el factor ADSR para un tiempo dado.
     float getADSR(int t)
     {
+        if (releaseTriggered && !useAudioClipADSR && t >= releaseStartTimeIndex)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((R / 1000f) * FM));
+            float releaseProgress = (float)(t - releaseStartTimeIndex) / releaseFrames;
+            return Mathf.Lerp(releaseStartLevel, 0.0000001f, EvaluateAdsrCurve01(releaseProgress, releaseUsesLogCurve));
+        }
+
+        return GetScheduledAdsr(t);
+    }
+
+    private float GetScheduledAdsr(int t)
+    {
         if (useAudioClipADSR)
         {
             return GetAudioClipADSR(t);
@@ -934,12 +953,12 @@ public class Osc : MonoBehaviour
 
             if (t < Attack)
             {
-                value = (float)t / Attack;
+                value = EvaluateAdsrCurve01((float)t / Attack, attackUsesLogCurve);
             }
             else if (t < Decay)
             {
                 float decayDen = Mathf.Max(1, Decay - Attack);
-                value = Mathf.Lerp(1f, SL, (float)(t - Attack) / decayDen);
+                value = Mathf.Lerp(1f, SL, EvaluateAdsrCurve01((float)(t - Attack) / decayDen, decayUsesLogCurve));
             }
             else if (t < Sustain)
             {
@@ -948,7 +967,7 @@ public class Osc : MonoBehaviour
             else if (t < Release)
             {
                 float releaseDen = Mathf.Max(1, Release - Sustain);
-                value = Mathf.Lerp(SL, 0.0000001f, (float)(t - Sustain) / releaseDen);
+                value = Mathf.Lerp(SL, 0.0000001f, EvaluateAdsrCurve01((float)(t - Sustain) / releaseDen, releaseUsesLogCurve));
             }
             else
             {
@@ -958,6 +977,31 @@ public class Osc : MonoBehaviour
             adsrCache[t] = value;
             return value;
         }
+    }
+
+    private bool HasProceduralEnvelopeFinished(int t)
+    {
+        if (releaseTriggered && !useAudioClipADSR)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((R / 1000f) * FM));
+            return (t - releaseStartTimeIndex) >= releaseFrames;
+        }
+
+        int attack = Mathf.Max(1, Mathf.RoundToInt((A / 1000f) * FM));
+        int decay = attack + Mathf.RoundToInt((D / 1000f) * FM);
+        int sustain = decay + Mathf.RoundToInt((S / 1000f) * FM);
+        int release = sustain + Mathf.RoundToInt((R / 1000f) * FM);
+        return t >= release;
+    }
+
+    private static float EvaluateAdsrCurve01(float progress, bool useLogCurve)
+    {
+        progress = Mathf.Clamp01(progress);
+
+        if (!useLogCurve)
+            return progress;
+
+        return Mathf.Log10(1f + (9f * progress));
     }
 
     // Se activa la reproducción de una nota.
@@ -979,6 +1023,9 @@ public class Osc : MonoBehaviour
 
         TimeIndex = 0;
         noteIsActive = true;
+        releaseTriggered = false;
+        releaseStartTimeIndex = 0;
+        releaseStartLevel = 0f;
 
         if (useAudioClipADSR)
             BuildAudioClipADSRData();
@@ -1016,7 +1063,18 @@ public class Osc : MonoBehaviour
         noteIsActive = false;
 
         if (UseExternalProceduralDSP() && proceduralSynthVoice != null)
+        {
             proceduralSynthVoice.NoteOff();
+            return;
+        }
+
+        if (!releaseTriggered && !useAudioClipADSR)
+        {
+            releaseStartTimeIndex = TimeIndex;
+            releaseStartLevel = GetScheduledAdsr(TimeIndex);
+            releaseTriggered = true;
+            return;
+        }
 
         if (OscAudio != null)
             OscAudio.Stop();
@@ -1031,6 +1089,18 @@ public class Osc : MonoBehaviour
     {
         if (UseExternalProceduralDSP())
         {
+#if !UNITY_WEBGL || UNITY_EDITOR
+            if (data == null || data.Length == 0)
+                return;
+
+            if (proceduralSynthVoice == null)
+            {
+                System.Array.Clear(data, 0, data.Length);
+                return;
+            }
+
+            proceduralSynthVoice.Render(data);
+#endif
             return;
         }
 
@@ -1096,6 +1166,18 @@ public class Osc : MonoBehaviour
             }
 
             TimeIndex++;
+
+            if (HasProceduralEnvelopeFinished(currentTime))
+            {
+                noteIsActive = false;
+                if (!releaseTriggered)
+                    frecuencia = 0f;
+
+                int remaining = data.Length - (i + channels);
+                if (remaining > 0)
+                    System.Array.Clear(data, i + channels, remaining);
+                break;
+            }
         }
     }
 
@@ -1258,7 +1340,12 @@ public class Osc : MonoBehaviour
         if (data == null || data.Length == 0)
             return;
 
-        if (!UseExternalProceduralDSP() || proceduralSynthVoice == null || !noteIsActive)
+#if !UNITY_WEBGL || UNITY_EDITOR
+        System.Array.Clear(data, 0, data.Length);
+        return;
+#endif
+
+        if (!UseExternalProceduralDSP() || proceduralSynthVoice == null)
         {
             System.Array.Clear(data, 0, data.Length);
             return;
@@ -1300,6 +1387,10 @@ public class Osc : MonoBehaviour
             sustainMs = S,
             sustainLevel = SL,
             releaseMs = R,
+            attackUsesLogCurve = attackUsesLogCurve,
+            decayUsesLogCurve = decayUsesLogCurve,
+            sustainUsesLogCurve = sustainUsesLogCurve,
+            releaseUsesLogCurve = releaseUsesLogCurve,
             fmMacroAmount = fmMacroAmount,
             fmMinRatio = fmMinRatio,
             fmMaxRatio = fmMaxRatio,

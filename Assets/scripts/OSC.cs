@@ -180,22 +180,26 @@ public class OSC : MonoBehaviour
         else if (Note == "A#" || Note == "a#") frecuencia = 29.1353f * Mathf.Pow(2, Octava);
         else if (Note == "B" || Note == "b") frecuencia = 30.8677f * Mathf.Pow(2, Octava);
         else if (Note == "C2" || Note == "c2") frecuencia = 2 * 16.3516f * Mathf.Pow(2, Octava);
-        
+
         Aud.Play();
         AOscIndex = 0;
         FOscIndex = 0;
         FEnvIndex = 0;
         ADSRIndex = 0;
+        releaseTriggered = false;
+        releaseStartFrame = 0;
+        releaseStartLevel = 0f;
 
     }
 
     public void KeyboardUp()
     {
+        if (releaseTriggered)
+            return;
 
-        Aud.Stop();
-        TimeIndex = 0;
-        ADSRIndex = 0;
-        frecuencia = 0.1f;
+        releaseStartFrame = ADSRIndex;
+        releaseStartLevel = GetScheduledAdsrValue(ADSRIndex);
+        releaseTriggered = true;
 
     }
 
@@ -365,6 +369,11 @@ public class OSC : MonoBehaviour
     [Range(100, 1000)]
     public float R = 100;
 
+    public bool AttackUsesLogCurve = false;
+    public bool DecayUsesLogCurve = false;
+    public bool SustainUsesLogCurve = false;
+    public bool ReleaseUsesLogCurve = false;
+
     float[] env;
 
     /*public void updateADSR() {
@@ -394,7 +403,23 @@ public class OSC : MonoBehaviour
         return envelope;
     }*/
 
+    private bool releaseTriggered = false;
+    private int releaseStartFrame = 0;
+    private float releaseStartLevel = 0f;
+
     float GetADSRValue(int frameIndex)
+    {
+        if (releaseTriggered && frameIndex >= releaseStartFrame)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((R / 1000f) * FM));
+            float progress = (float)(frameIndex - releaseStartFrame) / releaseFrames;
+            return Mathf.Lerp(releaseStartLevel, 0.00001f, EvaluateAdsrCurve01(progress, ReleaseUsesLogCurve));
+        }
+
+        return GetScheduledAdsrValue(frameIndex);
+    }
+
+    float GetScheduledAdsrValue(int frameIndex)
     {
         // Convertir tiempos de milisegundos a número de cuadros (frames)
         int attackFrames = Mathf.RoundToInt((A / 1000f) * FM);
@@ -406,12 +431,12 @@ public class OSC : MonoBehaviour
         if (frameIndex < attackFrames)
         {
             // Fase de ataque (0 a 1)
-            return Mathf.Lerp(0f, 1f, (float)frameIndex / attackFrames);
+            return EvaluateAdsrCurve01((float)frameIndex / Mathf.Max(1, attackFrames), AttackUsesLogCurve);
         }
         else if (frameIndex < decayFrames)
         {
             // Fase de decaimiento (1 a SLevel)
-            return Mathf.Lerp(1f, SLevel, (float)(frameIndex - attackFrames) / (decayFrames - attackFrames));
+            return Mathf.Lerp(1f, SLevel, EvaluateAdsrCurve01((float)(frameIndex - attackFrames) / Mathf.Max(1, decayFrames - attackFrames), DecayUsesLogCurve));
         }
         else if (frameIndex < sustainFrames)
         {
@@ -421,13 +446,20 @@ public class OSC : MonoBehaviour
         else if (frameIndex < releaseFrames)
         {
             // Fase de liberación (SLevel a 0.00001)
-            return Mathf.Lerp(SLevel, 0.00001f, (float)(frameIndex - sustainFrames) / (releaseFrames - sustainFrames));
+            return Mathf.Lerp(SLevel, 0.00001f, EvaluateAdsrCurve01((float)(frameIndex - sustainFrames) / Mathf.Max(1, releaseFrames - sustainFrames), ReleaseUsesLogCurve));
         }
         else
         {
             // Después del release, el valor es casi cero
             return 0.00001f;
         }
+    }
+
+    float EvaluateAdsrCurve01(float progress, bool useLogCurve)
+    {
+        progress = Mathf.Clamp01(progress);
+        if (!useLogCurve) return progress;
+        return Mathf.Log10(1f + (9f * progress));
     }
 
 
@@ -509,6 +541,24 @@ public class OSC : MonoBehaviour
 
                 TimeIndex++;
                 ADSRIndex++;
+
+                int naturalReleaseEnd = Mathf.Max(1, Mathf.RoundToInt((A / 1000f) * FM))
+                    + Mathf.RoundToInt((D / 1000f) * FM)
+                    + Mathf.RoundToInt((S / 1000f) * FM)
+                    + Mathf.RoundToInt((R / 1000f) * FM);
+                int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((R / 1000f) * FM));
+                bool finished = releaseTriggered
+                    ? (ADSRIndex - releaseStartFrame) >= releaseFrames
+                    : ADSRIndex >= naturalReleaseEnd;
+
+                if (finished)
+                {
+                    if (i + channels < data.Length)
+                        System.Array.Clear(data, i + channels, data.Length - (i + channels));
+
+                    frecuencia = 0.1f;
+                    break;
+                }
                 //FOscIndex++;
                 //AOscIndex++;
                 //FEnvIndex++;

@@ -25,6 +25,10 @@ namespace
         float sustainMs = 5.0f;
         float sustainLevel = 0.7f;
         float releaseMs = 5.0f;
+        bool attackUsesLogCurve = false;
+        bool decayUsesLogCurve = false;
+        bool sustainUsesLogCurve = false;
+        bool releaseUsesLogCurve = false;
         float fmMacroAmount = 0.35f;
         float fmMinRatio = 1.0f;
         float fmMaxRatio = 5.0f;
@@ -39,6 +43,9 @@ namespace
         int samplingEndFrame = 0;
         int timeIndex = 0;
         float samplingReadPosition = 0.0f;
+        bool releaseTriggered = false;
+        int releaseStartTimeIndex = 0;
+        float releaseStartLevel = 0.0f;
         std::vector<float> amplitudes;
         std::vector<float> wavetable;
         std::vector<float> samplingData;
@@ -143,7 +150,30 @@ namespace
         return output;
     }
 
-    float Adsr(const Voice& voice, int t)
+    float EvaluateCurve01(float progress, bool useLogCurve)
+    {
+        progress = std::clamp(progress, 0.0f, 1.0f);
+
+        if (!useLogCurve)
+            return progress;
+
+        return std::log10(1.0f + (9.0f * progress));
+    }
+
+    int ReleaseFrames(const Voice& voice)
+    {
+        return std::max(1, static_cast<int>((voice.releaseMs / 1000.0f) * voice.sampleRate));
+    }
+
+    int NaturalReleaseEnd(const Voice& voice)
+    {
+        int attack = std::max(1, static_cast<int>((voice.attackMs / 1000.0f) * voice.sampleRate));
+        int decay = attack + static_cast<int>((voice.decayMs / 1000.0f) * voice.sampleRate);
+        int sustain = decay + static_cast<int>((voice.sustainMs / 1000.0f) * voice.sampleRate);
+        return sustain + ReleaseFrames(voice);
+    }
+
+    float ScheduledAdsr(const Voice& voice, int t)
     {
         if (voice.useAudioClipADSR && !voice.adsrData.empty())
         {
@@ -156,11 +186,22 @@ namespace
         int sustain = decay + static_cast<int>((voice.sustainMs / 1000.0f) * voice.sampleRate);
         int release = sustain + static_cast<int>((voice.releaseMs / 1000.0f) * voice.sampleRate);
 
-        if (t < attack) return static_cast<float>(t) / attack;
-        if (t < decay) return 1.0f + ((voice.sustainLevel - 1.0f) * (static_cast<float>(t - attack) / std::max(1, decay - attack)));
+        if (t < attack) return EvaluateCurve01(static_cast<float>(t) / attack, voice.attackUsesLogCurve);
+        if (t < decay) return 1.0f + ((voice.sustainLevel - 1.0f) * EvaluateCurve01(static_cast<float>(t - attack) / std::max(1, decay - attack), voice.decayUsesLogCurve));
         if (t < sustain) return voice.sustainLevel;
-        if (t < release) return voice.sustainLevel + ((0.0000001f - voice.sustainLevel) * (static_cast<float>(t - sustain) / std::max(1, release - sustain)));
+        if (t < release) return voice.sustainLevel + ((0.0000001f - voice.sustainLevel) * EvaluateCurve01(static_cast<float>(t - sustain) / std::max(1, release - sustain), voice.releaseUsesLogCurve));
         return 0.0000001f;
+    }
+
+    float Adsr(const Voice& voice, int t)
+    {
+        if (voice.releaseTriggered && t >= voice.releaseStartTimeIndex)
+        {
+            float progress = static_cast<float>(t - voice.releaseStartTimeIndex) / ReleaseFrames(voice);
+            return voice.releaseStartLevel + ((0.0000001f - voice.releaseStartLevel) * EvaluateCurve01(progress, voice.releaseUsesLogCurve));
+        }
+
+        return ScheduledAdsr(voice, t);
     }
 
     float Generate(Voice& voice, float frequency, int time, bool advanceSampling)
@@ -235,6 +276,15 @@ extern "C"
         voice.useAudioClipADSR = useAudioClipADSR != 0;
     }
 
+    void PS_SetAdsrCurveModes(int handle, int attackUsesLogCurve, int decayUsesLogCurve, int sustainUsesLogCurve, int releaseUsesLogCurve)
+    {
+        auto& voice = voices[handle];
+        voice.attackUsesLogCurve = attackUsesLogCurve != 0;
+        voice.decayUsesLogCurve = decayUsesLogCurve != 0;
+        voice.sustainUsesLogCurve = sustainUsesLogCurve != 0;
+        voice.releaseUsesLogCurve = releaseUsesLogCurve != 0;
+    }
+
     void PS_SetHarmonics(int handle, float* amplitudes, int count)
     {
         auto& voice = voices[handle];
@@ -272,15 +322,20 @@ extern "C"
         voice.timeIndex = 0;
         voice.samplingReadPosition = static_cast<float>(voice.samplingStartFrame);
         voice.active = true;
+        voice.releaseTriggered = false;
+        voice.releaseStartTimeIndex = 0;
+        voice.releaseStartLevel = 0.0f;
     }
 
     void PS_NoteOff(int handle)
     {
         auto& voice = voices[handle];
-        voice.active = false;
-        voice.frequency = 0.0f;
-        voice.timeIndex = 0;
-        voice.samplingReadPosition = static_cast<float>(voice.samplingStartFrame);
+        if (!voice.active || voice.releaseTriggered)
+            return;
+
+        voice.releaseStartTimeIndex = voice.timeIndex;
+        voice.releaseStartLevel = ScheduledAdsr(voice, voice.timeIndex);
+        voice.releaseTriggered = true;
     }
 
     void PS_Render(int handle, float* data, int sampleCount)
@@ -311,6 +366,21 @@ extern "C"
                 data[i + channel] = sampleValue;
 
             voice.timeIndex++;
+
+            bool finished = voice.releaseTriggered
+                ? (currentTime - voice.releaseStartTimeIndex) >= ReleaseFrames(voice)
+                : currentTime >= NaturalReleaseEnd(voice);
+
+            if (finished)
+            {
+                voice.active = false;
+                voice.frequency = 0.0f;
+                voice.samplingReadPosition = static_cast<float>(voice.samplingStartFrame);
+                voice.releaseTriggered = false;
+
+                std::fill(data + i + channels, data + sampleCount, 0.0f);
+                break;
+            }
         }
     }
 }

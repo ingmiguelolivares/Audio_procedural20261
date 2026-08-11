@@ -8,6 +8,9 @@ public class ManagedProceduralSynthVoice
     private float samplingReadPosition;
     private float frequency;
     private bool active;
+    private bool releaseTriggered;
+    private int releaseStartTimeIndex;
+    private float releaseStartLevel;
     private readonly System.Random rng = new System.Random();
 
     public void UpdateConfig(ProceduralSynthVoiceConfig nextConfig)
@@ -21,14 +24,19 @@ public class ManagedProceduralSynthVoice
         timeIndex = 0;
         samplingReadPosition = config.samplingStartFrame;
         active = true;
+        releaseTriggered = false;
+        releaseStartTimeIndex = 0;
+        releaseStartLevel = 0f;
     }
 
     public void NoteOff()
     {
-        active = false;
-        frequency = 0f;
-        timeIndex = 0;
-        samplingReadPosition = config.samplingStartFrame;
+        if (!active || releaseTriggered)
+            return;
+
+        releaseStartTimeIndex = timeIndex;
+        releaseStartLevel = GetScheduledAdsr(timeIndex, Mathf.Max(1, config.sampleRate));
+        releaseTriggered = true;
     }
 
     public void Render(float[] data)
@@ -66,6 +74,19 @@ public class ManagedProceduralSynthVoice
                 data[i + ch] = sampleValue;
 
             timeIndex++;
+
+            if (ShouldStop(currentTime, sampleRate))
+            {
+                active = false;
+                frequency = 0f;
+                samplingReadPosition = config.samplingStartFrame;
+
+                int remaining = data.Length - (i + channels);
+                if (remaining > 0)
+                    Array.Clear(data, i + channels, remaining);
+
+                break;
+            }
         }
     }
 
@@ -240,6 +261,18 @@ public class ManagedProceduralSynthVoice
 
     private float GetAdsr(int t, float sr)
     {
+        if (releaseTriggered && t >= releaseStartTimeIndex)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((config.releaseMs / 1000f) * sr));
+            float releaseProgress = (float)(t - releaseStartTimeIndex) / releaseFrames;
+            return Mathf.Lerp(releaseStartLevel, 0.0000001f, EvaluateCurve01(releaseProgress, config.releaseUsesLogCurve));
+        }
+
+        return GetScheduledAdsr(t, sr);
+    }
+
+    private float GetScheduledAdsr(int t, float sr)
+    {
         if (config.useAudioClipADSR && config.audioClipAdsrData != null && config.audioClipAdsrData.Length > 0)
         {
             if (t < 0 || t >= config.audioClipAdsrData.Length)
@@ -254,14 +287,39 @@ public class ManagedProceduralSynthVoice
         int release = sustain + Mathf.RoundToInt((config.releaseMs / 1000f) * sr);
 
         if (t < attack)
-            return (float)t / attack;
+            return EvaluateCurve01((float)t / attack, config.attackUsesLogCurve);
         if (t < decay)
-            return Mathf.Lerp(1f, config.sustainLevel, (float)(t - attack) / Mathf.Max(1, decay - attack));
+            return Mathf.Lerp(1f, config.sustainLevel, EvaluateCurve01((float)(t - attack) / Mathf.Max(1, decay - attack), config.decayUsesLogCurve));
         if (t < sustain)
             return config.sustainLevel;
         if (t < release)
-            return Mathf.Lerp(config.sustainLevel, 0.0000001f, (float)(t - sustain) / Mathf.Max(1, release - sustain));
+            return Mathf.Lerp(config.sustainLevel, 0.0000001f, EvaluateCurve01((float)(t - sustain) / Mathf.Max(1, release - sustain), config.releaseUsesLogCurve));
 
         return 0.0000001f;
+    }
+
+    private bool ShouldStop(int t, float sr)
+    {
+        if (releaseTriggered)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((config.releaseMs / 1000f) * sr));
+            return (t - releaseStartTimeIndex) >= releaseFrames;
+        }
+
+        int attack = Mathf.Max(1, Mathf.RoundToInt((config.attackMs / 1000f) * sr));
+        int decay = attack + Mathf.RoundToInt((config.decayMs / 1000f) * sr);
+        int sustain = decay + Mathf.RoundToInt((config.sustainMs / 1000f) * sr);
+        int release = sustain + Mathf.RoundToInt((config.releaseMs / 1000f) * sr);
+        return t >= release;
+    }
+
+    private static float EvaluateCurve01(float progress, bool useLogCurve)
+    {
+        progress = Mathf.Clamp01(progress);
+
+        if (!useLogCurve)
+            return progress;
+
+        return Mathf.Log10(1f + (9f * progress));
     }
 }

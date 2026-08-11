@@ -19,6 +19,10 @@ public class ProceduralSynthVoiceConfig
     public float sustainMs;
     public float sustainLevel;
     public float releaseMs;
+    public bool attackUsesLogCurve;
+    public bool decayUsesLogCurve;
+    public bool sustainUsesLogCurve;
+    public bool releaseUsesLogCurve;
     public float fmMacroAmount;
     public float fmMinRatio;
     public float fmMaxRatio;

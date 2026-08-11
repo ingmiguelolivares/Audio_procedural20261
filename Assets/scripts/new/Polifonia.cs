@@ -36,6 +36,7 @@ public class Polifonia : MonoBehaviour
     public TextMeshProUGUI SustainText;
     public TextMeshProUGUI SustainLevelText;
     public TextMeshProUGUI ReleaseText;
+    public TextMeshProUGUI VolumeText;
     public TextMeshProUGUI DetunedText;
     public TextMeshProUGUI VibratoDepthText;
     public TextMeshProUGUI FMModFrequencyText;
@@ -64,11 +65,20 @@ public class Polifonia : MonoBehaviour
 
     [Tooltip("Toggle que permite usar el AudioClip como envolvente ADSR en lugar del ADSR procedural.")]
     public Toggle UseADSRClipToggle;
+    public Toggle AttackLogCurveToggle;
+    public Toggle DecayLogCurveToggle;
+    public Toggle SustainLogCurveToggle;
+    public Toggle ReleaseLogCurveToggle;
 
     [Tooltip("Valor usado cuando no hay Toggle asignado en la UI.")]
     public bool UseADSRClipValue = false;
+    public bool AttackLogCurveValue = false;
+    public bool DecayLogCurveValue = false;
+    public bool SustainLogCurveValue = false;
+    public bool ReleaseLogCurveValue = false;
 
     public Slider[] amplitudes = new Slider[10]; // Sliders para controlar las amplitudes de los armónicos.
+    public TextMeshProUGUI[] HarmonicLevelTexts = new TextMeshProUGUI[10];
     public float[] AmplitudesLv = new float[10];
 
     public Toggle WavetableToggle;
@@ -149,6 +159,15 @@ public class Polifonia : MonoBehaviour
         if (ArmonicosSl != null)
             ArmonicosSl.onValueChanged.AddListener(delegate { ArmonicosChange(); });
 
+        if (amplitudes != null)
+        {
+            for (int i = 0; i < amplitudes.Length; i++)
+            {
+                if (amplitudes[i] != null)
+                    amplitudes[i].onValueChanged.AddListener(delegate { AmplitudesChange(); });
+            }
+        }
+
         if (DetunedSlider != null)
             DetunedSlider.onValueChanged.AddListener(delegate { DetunedChange(); });
 
@@ -181,6 +200,18 @@ public class Polifonia : MonoBehaviour
         // ADSR desde AudioClip
         if (UseADSRClipToggle != null)
             UseADSRClipToggle.onValueChanged.AddListener(delegate { ADSRClipToggleChange(); });
+
+        if (AttackLogCurveToggle != null)
+            AttackLogCurveToggle.onValueChanged.AddListener(delegate { AttackLogCurveChange(); });
+
+        if (DecayLogCurveToggle != null)
+            DecayLogCurveToggle.onValueChanged.AddListener(delegate { DecayLogCurveChange(); });
+
+        if (SustainLogCurveToggle != null)
+            SustainLogCurveToggle.onValueChanged.AddListener(delegate { SustainLogCurveChange(); });
+
+        if (ReleaseLogCurveToggle != null)
+            ReleaseLogCurveToggle.onValueChanged.AddListener(delegate { ReleaseLogCurveChange(); });
 
         // Configuración del slider de forma de onda.
         if (WaveformSl != null)
@@ -262,6 +293,10 @@ public class Polifonia : MonoBehaviour
         SamplingStartChange();
         SamplingEndChange();
         ADSRClipToggleChange();
+        AttackLogCurveChange();
+        DecayLogCurveChange();
+        SustainLogCurveChange();
+        ReleaseLogCurveChange();
     }
 
     private void UpgradeLegacyDefaultPresetIfNeeded()
@@ -399,6 +434,18 @@ public class Polifonia : MonoBehaviour
         if (UseADSRClipToggle != null)
             UseADSRClipToggle.SetIsOnWithoutNotify(UseADSRClipValue);
 
+        if (AttackLogCurveToggle != null)
+            AttackLogCurveToggle.SetIsOnWithoutNotify(AttackLogCurveValue);
+
+        if (DecayLogCurveToggle != null)
+            DecayLogCurveToggle.SetIsOnWithoutNotify(DecayLogCurveValue);
+
+        if (SustainLogCurveToggle != null)
+            SustainLogCurveToggle.SetIsOnWithoutNotify(SustainLogCurveValue);
+
+        if (ReleaseLogCurveToggle != null)
+            ReleaseLogCurveToggle.SetIsOnWithoutNotify(ReleaseLogCurveValue);
+
         if (amplitudes == null || AmplitudesLv == null)
             return;
 
@@ -427,6 +474,9 @@ public class Polifonia : MonoBehaviour
         {
             osc.UpdateVolume(value);
         }
+
+        if (VolumeText != null)
+            VolumeText.text = value.ToString("F2");
     }
 
     // ------------------------------------------------------------
@@ -688,6 +738,30 @@ public class Polifonia : MonoBehaviour
         ApplyADSRClipSettingsToActiveOscillators();
     }
 
+    public void AttackLogCurveChange()
+    {
+        AttackLogCurveValue = AttackLogCurveToggle != null ? AttackLogCurveToggle.isOn : AttackLogCurveValue;
+        ApplyAdsrCurveModesToActiveOscillators();
+    }
+
+    public void DecayLogCurveChange()
+    {
+        DecayLogCurveValue = DecayLogCurveToggle != null ? DecayLogCurveToggle.isOn : DecayLogCurveValue;
+        ApplyAdsrCurveModesToActiveOscillators();
+    }
+
+    public void SustainLogCurveChange()
+    {
+        SustainLogCurveValue = SustainLogCurveToggle != null ? SustainLogCurveToggle.isOn : SustainLogCurveValue;
+        ApplyAdsrCurveModesToActiveOscillators();
+    }
+
+    public void ReleaseLogCurveChange()
+    {
+        ReleaseLogCurveValue = ReleaseLogCurveToggle != null ? ReleaseLogCurveToggle.isOn : ReleaseLogCurveValue;
+        ApplyAdsrCurveModesToActiveOscillators();
+    }
+
     private void ApplyADSRClipSettingsToActiveOscillators()
     {
         foreach (var osc in activeOscillators.Values)
@@ -705,6 +779,26 @@ public class Polifonia : MonoBehaviour
         osc.useAudioClipADSR = UseADSRClipValue;
         osc.BuildAudioClipADSRData();
         osc.MarkExternalBackendDirty();
+    }
+
+    private void ApplyAdsrCurveModesToActiveOscillators()
+    {
+        foreach (var osc in activeOscillators.Values)
+        {
+            ApplyAdsrCurveModesToOscillator(osc);
+        }
+    }
+
+    private void ApplyAdsrCurveModesToOscillator(Osc osc)
+    {
+        if (osc == null)
+            return;
+
+        osc.attackUsesLogCurve = AttackLogCurveValue;
+        osc.decayUsesLogCurve = DecayLogCurveValue;
+        osc.sustainUsesLogCurve = SustainLogCurveValue;
+        osc.releaseUsesLogCurve = ReleaseLogCurveValue;
+        osc.UpdateADSR();
     }
 
     // ------------------------------------------------------------
@@ -816,6 +910,9 @@ public class Polifonia : MonoBehaviour
             {
                 osc.AmplitudesChange(i, value);
             }
+
+            if (HarmonicLevelTexts != null && i < HarmonicLevelTexts.Length && HarmonicLevelTexts[i] != null)
+                HarmonicLevelTexts[i].text = value.ToString("F2");
         }
     }
 
@@ -929,6 +1026,7 @@ public class Polifonia : MonoBehaviour
                 ApplySettingsToOsc(oscScript);
                 ApplySamplingSettingsToOscillator(oscScript);
                 ApplyADSRClipSettingsToOscillator(oscScript);
+                ApplyAdsrCurveModesToOscillator(oscScript);
 
                 oscScript.KeyboardDown(note);
             }
@@ -977,5 +1075,6 @@ public class Polifonia : MonoBehaviour
         UpdateSamplingSettingsFromUI();
         ApplySamplingSettingsToOscillator(osc);
         ApplyADSRClipSettingsToOscillator(osc);
+        ApplyAdsrCurveModesToOscillator(osc);
     }
 }

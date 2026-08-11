@@ -211,10 +211,12 @@ public class ProceduralSynthVoice : IDisposable
         NativeApi.PSW_SetCore(handle, config.waveform, config.level, config.detuneCents, config.tremLfoFrequency, config.vibLfoFrequency, config.vibratoDepth, config.attackMs, config.decayMs, config.sustainMs, config.sustainLevel, config.releaseMs);
         NativeApi.PSW_SetFM(handle, config.fmMacroAmount, config.fmMinRatio, config.fmMaxRatio, config.fmMaxIndex, config.fmHighHarmonicBlend, config.fmModFrequency, config.fmModIndex);
         NativeApi.PSW_SetFlags(handle, config.useWavetable ? 1 : 0, config.useAudioClipADSR ? 1 : 0);
+        NativeApi.PSW_SetAdsrCurveModes(handle, config.attackUsesLogCurve ? 1 : 0, config.decayUsesLogCurve ? 1 : 0, config.sustainUsesLogCurve ? 1 : 0, config.releaseUsesLogCurve ? 1 : 0);
 #else
         NativeApi.PS_SetCore(handle, config.waveform, config.level, config.detuneCents, config.tremLfoFrequency, config.vibLfoFrequency, config.vibratoDepth, config.attackMs, config.decayMs, config.sustainMs, config.sustainLevel, config.releaseMs);
         NativeApi.PS_SetFM(handle, config.fmMacroAmount, config.fmMinRatio, config.fmMaxRatio, config.fmMaxIndex, config.fmHighHarmonicBlend, config.fmModFrequency, config.fmModIndex);
         NativeApi.PS_SetFlags(handle, config.useWavetable ? 1 : 0, config.useAudioClipADSR ? 1 : 0);
+        NativeApi.PS_SetAdsrCurveModes(handle, config.attackUsesLogCurve ? 1 : 0, config.decayUsesLogCurve ? 1 : 0, config.sustainUsesLogCurve ? 1 : 0, config.releaseUsesLogCurve ? 1 : 0);
 #endif
     }
 
@@ -308,6 +310,7 @@ public class ProceduralSynthVoice : IDisposable
         [DllImport(PluginName)] public static extern void PSW_SetCore(int handle, int waveform, float level, float detuneCents, float tremLfoFrequency, float vibLfoFrequency, float vibratoDepth, float attackMs, float decayMs, float sustainMs, float sustainLevel, float releaseMs);
         [DllImport(PluginName)] public static extern void PSW_SetFM(int handle, float fmMacroAmount, float fmMinRatio, float fmMaxRatio, float fmMaxIndex, float fmHighHarmonicBlend, float fmModFrequency, float fmModIndex);
         [DllImport(PluginName)] public static extern void PSW_SetFlags(int handle, int useWavetable, int useAudioClipADSR);
+        [DllImport(PluginName)] public static extern void PSW_SetAdsrCurveModes(int handle, int attackUsesLogCurve, int decayUsesLogCurve, int sustainUsesLogCurve, int releaseUsesLogCurve);
         [DllImport(PluginName)] public static extern void PSW_SetHarmonics(int handle, float[] amplitudes, int count);
         [DllImport(PluginName)] public static extern void PSW_SetWavetable(int handle, float[] wavetable, int count);
         [DllImport(PluginName)] public static extern void PSW_SetSampling(int handle, float[] samplingData, int sampleCount, int channels, int totalFrames, float baseFrequency, int startFrame, int endFrame);
@@ -324,6 +327,7 @@ public class ProceduralSynthVoice : IDisposable
         [DllImport(PluginName)] public static extern void PS_SetCore(int handle, int waveform, float level, float detuneCents, float tremLfoFrequency, float vibLfoFrequency, float vibratoDepth, float attackMs, float decayMs, float sustainMs, float sustainLevel, float releaseMs);
         [DllImport(PluginName)] public static extern void PS_SetFM(int handle, float fmMacroAmount, float fmMinRatio, float fmMaxRatio, float fmMaxIndex, float fmHighHarmonicBlend, float fmModFrequency, float fmModIndex);
         [DllImport(PluginName)] public static extern void PS_SetFlags(int handle, int useWavetable, int useAudioClipADSR);
+        [DllImport(PluginName)] public static extern void PS_SetAdsrCurveModes(int handle, int attackUsesLogCurve, int decayUsesLogCurve, int sustainUsesLogCurve, int releaseUsesLogCurve);
         [DllImport(PluginName)] public static extern void PS_SetHarmonics(int handle, float[] amplitudes, int count);
         [DllImport(PluginName)] public static extern void PS_SetWavetable(int handle, float[] wavetable, int count);
         [DllImport(PluginName)] public static extern void PS_SetSampling(int handle, float[] samplingData, int sampleCount, int channels, int totalFrames, float baseFrequency, int startFrame, int endFrame);

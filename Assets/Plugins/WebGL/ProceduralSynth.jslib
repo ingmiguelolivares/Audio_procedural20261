@@ -97,17 +97,37 @@ mergeInto(LibraryManager.library, {
             var invalidSamples = 0;
 
             function sine(v, f, t) { return Math.sin(2 * Math.PI * f * t / v.sampleRate); }
-            function adsr(v, t) {
+            function curve01(progress, useLogCurve) {
+              progress = Math.max(0, Math.min(1, progress));
+              if (!useLogCurve) return progress;
+              return Math.log10(1 + (9 * progress));
+            }
+            function releaseFrames(v) {
+              return Math.max(1, Math.round((v.releaseMs / 1000) * v.sampleRate));
+            }
+            function naturalReleaseEnd(v) {
+              var attack = Math.max(1, Math.round((v.attackMs / 1000) * v.sampleRate));
+              var decay = attack + Math.round((v.decayMs / 1000) * v.sampleRate);
+              var sustain = decay + Math.round((v.sustainMs / 1000) * v.sampleRate);
+              return sustain + releaseFrames(v);
+            }
+            function scheduledAdsr(v, t) {
               if (v.useAudioClipADSR && v.adsrData.length > 0) return (t >= 0 && t < v.adsrData.length) ? Math.max(0, Math.min(1, v.adsrData[t])) : 0;
               var attack = Math.max(1, Math.round((v.attackMs / 1000) * v.sampleRate));
               var decay = attack + Math.round((v.decayMs / 1000) * v.sampleRate);
               var sustain = decay + Math.round((v.sustainMs / 1000) * v.sampleRate);
               var release = sustain + Math.round((v.releaseMs / 1000) * v.sampleRate);
-              if (t < attack) return t / attack;
-              if (t < decay) return 1 + ((v.sustainLevel - 1) * ((t - attack) / Math.max(1, decay - attack)));
+              if (t < attack) return curve01(t / attack, v.attackUsesLogCurve);
+              if (t < decay) return 1 + ((v.sustainLevel - 1) * curve01((t - attack) / Math.max(1, decay - attack), v.decayUsesLogCurve));
               if (t < sustain) return v.sustainLevel;
-              if (t < release) return v.sustainLevel + ((0.0000001 - v.sustainLevel) * ((t - sustain) / Math.max(1, release - sustain)));
+              if (t < release) return v.sustainLevel + ((0.0000001 - v.sustainLevel) * curve01((t - sustain) / Math.max(1, release - sustain), v.releaseUsesLogCurve));
               return 0.0000001;
+            }
+            function adsr(v, t) {
+              if (v.releaseTriggered && t >= v.releaseStartTimeIndex) {
+                return v.releaseStartLevel + ((0.0000001 - v.releaseStartLevel) * curve01((t - v.releaseStartTimeIndex) / releaseFrames(v), v.releaseUsesLogCurve));
+              }
+              return scheduledAdsr(v, t);
             }
             function wavetable(v, time, freq) {
               if (!v.wavetable.length) return 0;
@@ -201,6 +221,17 @@ mergeInto(LibraryManager.library, {
                 var detunedFreq = currentFreq * Math.pow(2, v.detuneCents / 1200);
                 mixed += v.level * 0.5 * (gen(v, currentFreq, t, true) + gen(v, detunedFreq, t, false)) * env * trem;
                 v.timeIndex++;
+
+                var finished = v.releaseTriggered
+                  ? (t - v.releaseStartTimeIndex) >= releaseFrames(v)
+                  : t >= naturalReleaseEnd(v);
+
+                if (finished) {
+                  v.active = false;
+                  v.frequency = 0;
+                  v.samplingReadPosition = v.samplingStartFrame;
+                  v.releaseTriggered = false;
+                }
               }
               if (!isFinite(mixed)) {
                 invalidSamples++;
@@ -366,6 +397,10 @@ mergeInto(LibraryManager.library, {
       sustainMs: 5,
       sustainLevel: 0.7,
       releaseMs: 5,
+      attackUsesLogCurve: false,
+      decayUsesLogCurve: false,
+      sustainUsesLogCurve: false,
+      releaseUsesLogCurve: false,
       fmMacroAmount: 0.35,
       fmMinRatio: 1,
       fmMaxRatio: 5,
@@ -380,6 +415,9 @@ mergeInto(LibraryManager.library, {
       samplingEndFrame: 0,
       timeIndex: 0,
       samplingReadPosition: 0,
+      releaseTriggered: false,
+      releaseStartTimeIndex: 0,
+      releaseStartLevel: 0,
       amplitudes: [],
       wavetable: [],
       samplingData: [],
@@ -423,6 +461,14 @@ mergeInto(LibraryManager.library, {
     v.useWavetable = useWavetable !== 0;
     v.useAudioClipADSR = useAudioClipADSR !== 0;
   },
+  PSW_SetAdsrCurveModes: function(handle, attackUsesLogCurve, decayUsesLogCurve, sustainUsesLogCurve, releaseUsesLogCurve) {
+    var v = globalThis.ProceduralSynthVoices[handle];
+    if (!v) return;
+    v.attackUsesLogCurve = attackUsesLogCurve !== 0;
+    v.decayUsesLogCurve = decayUsesLogCurve !== 0;
+    v.sustainUsesLogCurve = sustainUsesLogCurve !== 0;
+    v.releaseUsesLogCurve = releaseUsesLogCurve !== 0;
+  },
   PSW_SetHarmonics: function(handle, amplitudes, count) {
     var v = globalThis.ProceduralSynthVoices[handle];
     if (!v) return;
@@ -456,15 +502,35 @@ mergeInto(LibraryManager.library, {
     v.timeIndex = 0;
     v.samplingReadPosition = v.samplingStartFrame;
     v.active = true;
+    v.releaseTriggered = false;
+    v.releaseStartTimeIndex = 0;
+    v.releaseStartLevel = 0;
     console.log("[ProceduralSynth] NoteOn", "handle=", handle, "frequency=", frequency);
   },
   PSW_NoteOff: function(handle) {
     var v = globalThis.ProceduralSynthVoices[handle];
     if (!v) return;
-    v.active = false;
-    v.frequency = 0;
-    v.timeIndex = 0;
-    v.samplingReadPosition = v.samplingStartFrame;
+    if (!v.active || v.releaseTriggered) return;
+    function curve01(progress, useLogCurve) {
+      progress = Math.max(0, Math.min(1, progress));
+      if (!useLogCurve) return progress;
+      return Math.log10(1 + (9 * progress));
+    }
+    function scheduledAdsr(voice, t) {
+      if (voice.useAudioClipADSR && voice.adsrData.length > 0) return (t >= 0 && t < voice.adsrData.length) ? Math.max(0, Math.min(1, voice.adsrData[t])) : 0;
+      var attack = Math.max(1, Math.round((voice.attackMs / 1000) * voice.sampleRate));
+      var decay = attack + Math.round((voice.decayMs / 1000) * voice.sampleRate);
+      var sustain = decay + Math.round((voice.sustainMs / 1000) * voice.sampleRate);
+      var release = sustain + Math.round((voice.releaseMs / 1000) * voice.sampleRate);
+      if (t < attack) return curve01(t / attack, voice.attackUsesLogCurve);
+      if (t < decay) return 1 + ((voice.sustainLevel - 1) * curve01((t - attack) / Math.max(1, decay - attack), voice.decayUsesLogCurve));
+      if (t < sustain) return voice.sustainLevel;
+      if (t < release) return voice.sustainLevel + ((0.0000001 - voice.sustainLevel) * curve01((t - sustain) / Math.max(1, release - sustain), voice.releaseUsesLogCurve));
+      return 0.0000001;
+    }
+    v.releaseStartTimeIndex = v.timeIndex;
+    v.releaseStartLevel = scheduledAdsr(v, v.timeIndex);
+    v.releaseTriggered = true;
     console.log("[ProceduralSynth] NoteOff", "handle=", handle);
   },
   PSW_Render: function(handle, dataPtr, sampleCount) {
@@ -480,17 +546,37 @@ mergeInto(LibraryManager.library, {
     }
     var ch = Math.max(1, v.channels);
     function sine(f, t) { return Math.sin(2 * Math.PI * f * t / v.sampleRate); }
-    function adsr(t) {
-      if (v.useAudioClipADSR && v.adsrData.length > 0) return (t >= 0 && t < v.adsrData.length) ? Math.max(0, Math.min(1, v.adsrData[t])) : 0;
+    function curve01(progress, useLogCurve) {
+      progress = Math.max(0, Math.min(1, progress));
+      if (!useLogCurve) return progress;
+      return Math.log10(1 + (9 * progress));
+    }
+    function releaseFrames() {
+      return Math.max(1, Math.round((v.releaseMs / 1000) * v.sampleRate));
+    }
+    function naturalReleaseEnd() {
       var attack = Math.max(1, Math.round((v.attackMs / 1000) * v.sampleRate));
       var decay = attack + Math.round((v.decayMs / 1000) * v.sampleRate);
       var sustain = decay + Math.round((v.sustainMs / 1000) * v.sampleRate);
-      var release = sustain + Math.round((v.releaseMs / 1000) * v.sampleRate);
-      if (t < attack) return t / attack;
-      if (t < decay) return 1 + ((v.sustainLevel - 1) * ((t - attack) / Math.max(1, decay - attack)));
-      if (t < sustain) return v.sustainLevel;
-      if (t < release) return v.sustainLevel + ((0.0000001 - v.sustainLevel) * ((t - sustain) / Math.max(1, release - sustain)));
+      return sustain + releaseFrames();
+    }
+    function scheduledAdsr(voice, t) {
+      if (voice.useAudioClipADSR && voice.adsrData.length > 0) return (t >= 0 && t < voice.adsrData.length) ? Math.max(0, Math.min(1, voice.adsrData[t])) : 0;
+      var attack = Math.max(1, Math.round((voice.attackMs / 1000) * voice.sampleRate));
+      var decay = attack + Math.round((voice.decayMs / 1000) * voice.sampleRate);
+      var sustain = decay + Math.round((voice.sustainMs / 1000) * voice.sampleRate);
+      var release = sustain + Math.round((voice.releaseMs / 1000) * voice.sampleRate);
+      if (t < attack) return curve01(t / attack, voice.attackUsesLogCurve);
+      if (t < decay) return 1 + ((voice.sustainLevel - 1) * curve01((t - attack) / Math.max(1, decay - attack), voice.decayUsesLogCurve));
+      if (t < sustain) return voice.sustainLevel;
+      if (t < release) return voice.sustainLevel + ((0.0000001 - voice.sustainLevel) * curve01((t - sustain) / Math.max(1, release - sustain), voice.releaseUsesLogCurve));
       return 0.0000001;
+    }
+    function adsr(t) {
+      if (v.releaseTriggered && t >= v.releaseStartTimeIndex) {
+        return v.releaseStartLevel + ((0.0000001 - v.releaseStartLevel) * curve01((t - v.releaseStartTimeIndex) / releaseFrames(), v.releaseUsesLogCurve));
+      }
+      return scheduledAdsr(v, t);
     }
     function wavetable(time, freq) {
       if (!v.wavetable.length) return 0;
@@ -573,6 +659,17 @@ mergeInto(LibraryManager.library, {
       out[i] = sample;
       for (var c = 1; c < ch; c++) out[i + c] = sample;
       v.timeIndex++;
+      var finished = v.releaseTriggered
+        ? (t - v.releaseStartTimeIndex) >= releaseFrames()
+        : t >= naturalReleaseEnd();
+      if (finished) {
+        v.active = false;
+        v.frequency = 0;
+        v.samplingReadPosition = v.samplingStartFrame;
+        v.releaseTriggered = false;
+        out.fill(0, i + ch);
+        break;
+      }
     }
   }
 });
