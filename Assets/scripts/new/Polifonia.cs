@@ -869,6 +869,10 @@ public class Polifonia : MonoBehaviour
                     WaveFormText.SetText("Custom3");
                     break;
 
+                case WaveFormType.Gemini:
+                    WaveFormText.SetText("Gemini");
+                    break;
+
                 default:
                     WaveFormText.SetText(selectedType.ToString());
                     break;

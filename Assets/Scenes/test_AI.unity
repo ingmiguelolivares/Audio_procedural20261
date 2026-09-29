@@ -2063,7 +2063,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 218a21a2dc3d54789b65d809a7d65830, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  OSCprefab: {fileID: 900001001}
+  OSCprefab: {fileID: 5616294294163047231, guid: 3439abe2883b8460ba490c71be38865a, type: 3}
   OctaveText: {fileID: 1782333253}
   WaveFormText: {fileID: 319430511}
   ArmonicosText: {fileID: 974651057}
@@ -6067,7 +6067,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 218a21a2dc3d54789b65d809a7d65830, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  OSCprefab: {fileID: 900001001}
+  OSCprefab: {fileID: 5616294294163047231, guid: 3439abe2883b8460ba490c71be38865a, type: 3}
   OctaveText: {fileID: 1782333253}
   WaveFormText: {fileID: 319430511}
   ArmonicosText: {fileID: 974651057}
@@ -10022,289 +10022,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 876489147}
   m_CullTransparentMesh: 1
---- !u!1 &900001001
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 900001002}
-  - component: {fileID: 900001003}
-  - component: {fileID: 900001004}
-  m_Layer: 0
-  m_Name: Gemini Demo Osc
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &900001002
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900001001}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &900001003
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900001001}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: daa21852b0f3c4ef1a7c1b92563a8094, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  frecuencia: 0
-  tremLFOf: 1
-  VibLFOf: 1
-  vibratoDepth: 5
-  fmMacroAmount: 0.35
-  fmMinRatio: 1
-  fmMaxRatio: 5
-  fmMaxIndex: 8
-  fmHighHarmonicBlend: 0.18
-  fmModFrequency: 220
-  fmModIndex: 1
-  samplingClip: {fileID: 0}
-  samplingBaseFrequency: 440
-  samplingStartNormalized: 0
-  samplingEndNormalized: 1
-  samplingStartFrame: 0
-  samplingEndFrame: 0
-  Octava: 4
-  Narmonicos: 0
-  Level: 0.5
-  OscAudio: {fileID: 900001004}
-  audioEngineBackend: 0
-  streamingChannels: 2
-  streamingClipSeconds: 1
-  adsrSourceClip: {fileID: 0}
-  useAudioClipADSR: 0
-  autoUseWavetableForSamplingAndCustom: 1
-  sineWavetableLoader: {fileID: 0}
-  squareWavetableLoader: {fileID: 0}
-  sawtoothWavetableLoader: {fileID: 0}
-  triangleWavetableLoader: {fileID: 0}
-  saWavetableLoader: {fileID: 0}
-  samplingWavetableLoader: {fileID: 0}
-  custom1WavetableLoader: {fileID: 0}
-  custom2WavetableLoader: {fileID: 0}
-  custom3WavetableLoader: {fileID: 0}
-  detuneCents: 0
-  detuneFrames: 0
-  FormType: 0
-  AmplitudesLv:
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  OutputLevel: 1
-  Aud: {fileID: 900001004}
-  waveformType: 0
-  Amplitudes:
-  - 1
-  - 0.7
-  - 0.8
-  - 0.6
-  - 0.5
-  - 0.4
-  - 0.5
-  - 0.6
-  - 0.7
-  - 0.4
-  SLegacy: 0.7
-  AF: 5
-  DF: 10
-  LowEnvAF: 1
-  HighEnvDF: 1
-  FreqAlt: 1.5
-  W: 1
-  UseFilterModulation: 0
-  FilterLevel: 0
-  UseDistortion: 0
-  DistortionAmount: 0.35
-  A: 5
-  D: 5
-  S: 5
-  SL: 0.7
-  R: 5
-  attackUsesLogCurve: 0
-  decayUsesLogCurve: 0
-  sustainUsesLogCurve: 0
-  releaseUsesLogCurve: 0
---- !u!82 &900001004
-AudioSource:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900001001}
-  m_Enabled: 1
-  serializedVersion: 4
-  OutputAudioMixerGroup: {fileID: 0}
-  m_audioClip: {fileID: 0}
-  m_Resource: {fileID: 0}
-  m_PlayOnAwake: 0
-  m_Volume: 1
-  m_Pitch: 1
-  Loop: 0
-  Mute: 0
-  Spatialize: 0
-  SpatializePostEffects: 0
-  Priority: 128
-  DopplerLevel: 1
-  MinDistance: 1
-  MaxDistance: 500
-  Pan2D: 0
-  rolloffMode: 0
-  BypassEffects: 0
-  BypassListenerEffects: 0
-  BypassReverbZones: 0
-  rolloffCustomCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 1
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0.33333334
-      outWeight: 0.33333334
-    - serializedVersion: 3
-      time: 1
-      value: 0
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0.33333334
-      outWeight: 0.33333334
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
-  panLevelCustomCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 0
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0.33333334
-      outWeight: 0.33333334
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
-  spreadCustomCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 0
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0.33333334
-      outWeight: 0.33333334
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
-  reverbZoneMixCustomCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 1
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0.33333334
-      outWeight: 0.33333334
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
---- !u!1 &900002001
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 900002002}
-  - component: {fileID: 900002003}
-  m_Layer: 0
-  m_Name: Gemini Timbre Generator
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &900002002
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900002001}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &900002003
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900002001}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8c2a48aa62744930850d63dc9981ca72, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  targetOsc: {fileID: 900001003}
-  geminiApiKey: 
-  modelName: gemini-3.8-flash
-  requestTimeoutSeconds: 30
-  applyFallbackWhenGeminiFails: 1
-  promptInput: {fileID: 0}
-  generatePromptButton: {fileID: 0}
-  fallbackPrompt: Warm dark analog bass with fast attack and slow release.
-  referenceAudioClip: {fileID: 8300000, guid: 10213264f00a74576a24bc0cb8ad903e, type: 3}
-  analyzeAudioButton: {fileID: 0}
-  useGeminiToComplementAudioAnalysis: 0
-  statusText: {fileID: 0}
-  logDetails: 1
 --- !u!1 &901755078
 GameObject:
   m_ObjectHideFlags: 0
@@ -15604,7 +15321,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 218a21a2dc3d54789b65d809a7d65830, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  OSCprefab: {fileID: 900001001}
+  OSCprefab: {fileID: 5616294294163047231, guid: 3439abe2883b8460ba490c71be38865a, type: 3}
   OctaveText: {fileID: 1782333253}
   WaveFormText: {fileID: 319430511}
   ArmonicosText: {fileID: 974651057}
@@ -24210,7 +23927,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 218a21a2dc3d54789b65d809a7d65830, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  OSCprefab: {fileID: 900001001}
+  OSCprefab: {fileID: 5616294294163047231, guid: 3439abe2883b8460ba490c71be38865a, type: 3}
   OctaveText: {fileID: 0}
   WaveFormText: {fileID: 0}
   ArmonicosText: {fileID: 0}
@@ -24537,5 +24254,3 @@ SceneRoots:
   - {fileID: 1734193622}
   - {fileID: 1070583402}
   - {fileID: 975081519}
-  - {fileID: 900001002}
-  - {fileID: 900002002}

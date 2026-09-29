@@ -36,7 +36,7 @@ public class ExperimentInteractionLogger : MonoBehaviour
     private readonly List<ExperimentCsvRow> rows = new List<ExperimentCsvRow>();
     private readonly Dictionary<string, int> objectActionCounts = new Dictionary<string, int>();
     private readonly Dictionary<string, int> objectTotalCounts = new Dictionary<string, int>();
-    private readonly HashSet<int> registeredControlIds = new HashSet<int>();
+    private readonly HashSet<EntityId> registeredControlIds = new HashSet<EntityId>();
     private DateTime sessionStartUtc;
     private bool hasExported;
 
@@ -100,8 +100,7 @@ public class ExperimentInteractionLogger : MonoBehaviour
         }
 
         Selectable[] selectables = FindObjectsByType<Selectable>(
-            includeInactiveObjects ? FindObjectsInactive.Include : FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            includeInactiveObjects ? FindObjectsInactive.Include : FindObjectsInactive.Exclude);
 
         for (int i = 0; i < selectables.Length; i++)
             RegisterSelectable(selectables[i]);
@@ -179,7 +178,7 @@ public class ExperimentInteractionLogger : MonoBehaviour
         if (selectable == null)
             return;
 
-        int id = selectable.GetInstanceID();
+        EntityId id = selectable.GetEntityId();
         if (registeredControlIds.Contains(id))
             return;
 

@@ -139,7 +139,8 @@ public class Osc : MonoBehaviour
         WhiteNoise,
         Custom1,
         Custom2,
-        Custom3
+        Custom3,
+        Gemini
     }
 
     // Indica qué forma de onda se está usando actualmente.
@@ -651,7 +652,8 @@ public class Osc : MonoBehaviour
         return FormType == WaveFormType.Sampling1 ||
                FormType == WaveFormType.Custom1 ||
                FormType == WaveFormType.Custom2 ||
-               FormType == WaveFormType.Custom3;
+               FormType == WaveFormType.Custom3 ||
+               FormType == WaveFormType.Gemini;
     }
 
     private bool ShouldReadFromWavetableInAudio()
@@ -664,7 +666,8 @@ public class Osc : MonoBehaviour
 
         if (FormType == WaveFormType.Custom1 ||
             FormType == WaveFormType.Custom2 ||
-            FormType == WaveFormType.Custom3)
+            FormType == WaveFormType.Custom3 ||
+            FormType == WaveFormType.Gemini)
             return currentWavetableLoadedFromExternal;
 
         return useWavetable;
@@ -729,6 +732,7 @@ public class Osc : MonoBehaviour
                 case WaveFormType.Custom1:
                 case WaveFormType.Custom2:
                 case WaveFormType.Custom3:
+                case WaveFormType.Gemini:
                     wavetable[i] = 0f;
                     break;
             }
@@ -758,6 +762,43 @@ public class Osc : MonoBehaviour
         useWavetable = value;
         LoadAssignedWavetableLoaders();
         GenerateWavetable();
+        MarkExternalBackendDirty();
+    }
+
+    public void ApplyGeneratedTimbre(GeminiTimbreGenerator.GeneratedTimbre generatedTimbre)
+    {
+        if (generatedTimbre == null || generatedTimbre.wavetable == null || generatedTimbre.wavetable.Length == 0 || generatedTimbre.adsr == null)
+        {
+            Debug.LogWarning("[Osc] Generated timbre is not valid. Current synth settings were preserved.");
+            return;
+        }
+
+        float[] generatedWavetable = new float[wavetableSize];
+        int sourceLength = generatedTimbre.wavetable.Length;
+
+        for (int i = 0; i < wavetableSize; i++)
+        {
+            float readPos = ((float)i / wavetableSize) * sourceLength;
+            int index0 = Mathf.FloorToInt(readPos) % sourceLength;
+            int index1 = (index0 + 1) % sourceLength;
+            float frac = readPos - Mathf.Floor(readPos);
+            generatedWavetable[i] = Mathf.Clamp(Mathf.Lerp(generatedTimbre.wavetable[index0], generatedTimbre.wavetable[index1], frac), -1f, 1f);
+        }
+
+        wavetable = generatedWavetable;
+        FormType = WaveFormType.Gemini;
+        useWavetable = true;
+        currentWavetableLoadedFromExternal = true;
+        useAudioClipADSR = false;
+
+        A = Mathf.Clamp(generatedTimbre.adsr.attackMs, 1f, 400f);
+        D = Mathf.Clamp(generatedTimbre.adsr.decayMs, 1f, 1000f);
+        S = Mathf.Clamp(generatedTimbre.adsr.sustainMs, 0f, 5000f);
+        SL = Mathf.Clamp(generatedTimbre.adsr.sustainLevel, 0.001f, 1f);
+        R = Mathf.Clamp(generatedTimbre.adsr.releaseMs, 1f, 1000f);
+        SLegacy = SL;
+
+        UpdateADSR();
         MarkExternalBackendDirty();
     }
 
@@ -1216,6 +1257,7 @@ public class Osc : MonoBehaviour
             case WaveFormType.Custom1:
             case WaveFormType.Custom2:
             case WaveFormType.Custom3:
+            case WaveFormType.Gemini:
                 return 0f;
 
             default:
