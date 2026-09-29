@@ -802,6 +802,43 @@ public class Osc : MonoBehaviour
         MarkExternalBackendDirty();
     }
 
+    public void ApplyGeneratedTimbre(GroqTimbreGenerator.GeneratedTimbre generatedTimbre)
+    {
+        if (generatedTimbre == null || generatedTimbre.wavetable == null || generatedTimbre.wavetable.Length == 0 || generatedTimbre.adsr == null)
+        {
+            Debug.LogWarning("[Osc] Generated timbre is not valid. Current synth settings were preserved.");
+            return;
+        }
+
+        float[] generatedWavetable = new float[wavetableSize];
+        int sourceLength = generatedTimbre.wavetable.Length;
+
+        for (int i = 0; i < wavetableSize; i++)
+        {
+            float readPos = ((float)i / wavetableSize) * sourceLength;
+            int index0 = Mathf.FloorToInt(readPos) % sourceLength;
+            int index1 = (index0 + 1) % sourceLength;
+            float frac = readPos - Mathf.Floor(readPos);
+            generatedWavetable[i] = Mathf.Clamp(Mathf.Lerp(generatedTimbre.wavetable[index0], generatedTimbre.wavetable[index1], frac), -1f, 1f);
+        }
+
+        wavetable = generatedWavetable;
+        FormType = WaveFormType.Gemini;
+        useWavetable = true;
+        currentWavetableLoadedFromExternal = true;
+        useAudioClipADSR = false;
+
+        A = Mathf.Clamp(generatedTimbre.adsr.attackMs, 1f, 400f);
+        D = Mathf.Clamp(generatedTimbre.adsr.decayMs, 1f, 1000f);
+        S = Mathf.Clamp(generatedTimbre.adsr.sustainMs, 0f, 5000f);
+        SL = Mathf.Clamp(generatedTimbre.adsr.sustainLevel, 0.001f, 1f);
+        R = Mathf.Clamp(generatedTimbre.adsr.releaseMs, 1f, 1000f);
+        SLegacy = SL;
+
+        UpdateADSR();
+        MarkExternalBackendDirty();
+    }
+
     // Parámetros ADSR.
     public float A = 5;
     public float D = 5;
