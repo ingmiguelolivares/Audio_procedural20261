@@ -1,3 +1,8 @@
+// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial
+// Desarrollado por: Miguel Ángel Olivares Tenorio
+// Descripción: Puente WebGL basado en Web Audio para reproducir voces procedural
+// con ADSR, wavetables, antialiasing y timbres multiframe generados por IA.
+
 mergeInto(LibraryManager.library, {
   PSW_UnlockAudio: function() {
     if (!globalThis.ProceduralSynthState) {
@@ -137,9 +142,39 @@ mergeInto(LibraryManager.library, {
             }
             function additive(v, freq, time) {
               if (v.harmonicCount <= 0 || !v.amplitudes.length) return 0;
-              var limit = Math.min(v.harmonicCount, v.amplitudes.length), sum = 0;
-              for (var h = 1; h <= limit; h++) sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * v.amplitudes[h - 1];
-              return sum / Math.max(1, limit);
+              var nyquistLimit = freq > 0 ? Math.floor((v.sampleRate * 0.5) / freq) : 0;
+              var limit = Math.min(v.harmonicCount, v.amplitudes.length, nyquistLimit), sum = 0, norm = 0;
+              for (var h = 1; h <= limit; h++) {
+                var amplitude = Math.max(0, Math.min(1, v.amplitudes[h - 1] || 0));
+                sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * amplitude;
+                norm += amplitude;
+              }
+              return norm > 0 ? Math.max(-1, Math.min(1, sum / norm)) : 0;
+            }
+            function generatedMultiframe(v, freq, time) {
+              if (freq <= 0) return 0;
+              var from = v.generatedAttackHarmonics || [];
+              var to = v.generatedSustainHarmonics || [];
+              var progress = 0;
+              if (v.releaseTriggered && time >= v.releaseStartTimeIndex) {
+                from = v.generatedSustainHarmonics || [];
+                to = v.generatedReleaseHarmonics || [];
+                progress = (time - v.releaseStartTimeIndex) / Math.max(1, releaseFrames(v));
+              } else {
+                var transitionFrames = Math.max(1, Math.round(((v.attackMs + v.decayMs) / 1000) * v.sampleRate));
+                progress = time / transitionFrames;
+              }
+              progress = Math.max(0, Math.min(1, progress));
+              var nyquistLimit = Math.floor((v.sampleRate * 0.5) / freq);
+              var limit = Math.min(16, nyquistLimit, from.length, to.length), sum = 0, norm = 0;
+              for (var h = 1; h <= limit; h++) {
+                var a = Math.max(0, Math.min(1, from[h - 1] || 0));
+                var b = Math.max(0, Math.min(1, to[h - 1] || 0));
+                var amplitude = a + ((b - a) * progress);
+                sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * amplitude;
+                norm += amplitude;
+              }
+              return norm > 0 ? Math.max(-1, Math.min(1, sum / norm)) : 0;
             }
             function fm(v, freq, time) {
               var amount = Math.max(0, Math.min(1, v.fmMacroAmount));
@@ -181,6 +216,7 @@ mergeInto(LibraryManager.library, {
             }
             function gen(v, freq, time, advanceSampling) {
               if (v.waveform !== 7 && freq <= 0) return 0;
+              if (v.useGeneratedMultiframeTimbre && v.waveform === 11) return generatedMultiframe(v, freq, time);
               if (v.useWavetable && v.wavetable.length && v.waveform !== 5) return wavetable(v, time, freq);
               switch (v.waveform) {
                 case 0: return sine(v, freq, time);
@@ -419,6 +455,10 @@ mergeInto(LibraryManager.library, {
       releaseStartTimeIndex: 0,
       releaseStartLevel: 0,
       amplitudes: [],
+      useGeneratedMultiframeTimbre: false,
+      generatedAttackHarmonics: [],
+      generatedSustainHarmonics: [],
+      generatedReleaseHarmonics: [],
       wavetable: [],
       samplingData: [],
       adsrData: []
@@ -474,6 +514,14 @@ mergeInto(LibraryManager.library, {
     if (!v) return;
     v.harmonicCount = count;
     v.amplitudes = Array.from(HEAPF32.subarray(amplitudes >> 2, (amplitudes >> 2) + count));
+  },
+  PSW_SetGeneratedTimbre: function(handle, enabled, attack, attackCount, sustain, sustainCount, release, releaseCount) {
+    var v = globalThis.ProceduralSynthVoices[handle];
+    if (!v) return;
+    v.useGeneratedMultiframeTimbre = enabled !== 0;
+    v.generatedAttackHarmonics = Array.from(HEAPF32.subarray(attack >> 2, (attack >> 2) + Math.max(0, attackCount)));
+    v.generatedSustainHarmonics = Array.from(HEAPF32.subarray(sustain >> 2, (sustain >> 2) + Math.max(0, sustainCount)));
+    v.generatedReleaseHarmonics = Array.from(HEAPF32.subarray(release >> 2, (release >> 2) + Math.max(0, releaseCount)));
   },
   PSW_SetWavetable: function(handle, wavetable, count) {
     var v = globalThis.ProceduralSynthVoices[handle];
@@ -586,9 +634,39 @@ mergeInto(LibraryManager.library, {
     }
     function additive(freq, time) {
       if (v.harmonicCount <= 0 || !v.amplitudes.length) return 0;
-      var limit = Math.min(v.harmonicCount, v.amplitudes.length), sum = 0;
-      for (var h = 1; h <= limit; h++) sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * v.amplitudes[h - 1];
-      return sum / Math.max(1, limit);
+      var nyquistLimit = freq > 0 ? Math.floor((v.sampleRate * 0.5) / freq) : 0;
+      var limit = Math.min(v.harmonicCount, v.amplitudes.length, nyquistLimit), sum = 0, norm = 0;
+      for (var h = 1; h <= limit; h++) {
+        var amplitude = Math.max(0, Math.min(1, v.amplitudes[h - 1] || 0));
+        sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * amplitude;
+        norm += amplitude;
+      }
+      return norm > 0 ? Math.max(-1, Math.min(1, sum / norm)) : 0;
+    }
+    function generatedMultiframe(freq, time) {
+      if (freq <= 0) return 0;
+      var from = v.generatedAttackHarmonics || [];
+      var to = v.generatedSustainHarmonics || [];
+      var progress = 0;
+      if (v.releaseTriggered && time >= v.releaseStartTimeIndex) {
+        from = v.generatedSustainHarmonics || [];
+        to = v.generatedReleaseHarmonics || [];
+        progress = (time - v.releaseStartTimeIndex) / Math.max(1, releaseFrames());
+      } else {
+        var transitionFrames = Math.max(1, Math.round(((v.attackMs + v.decayMs) / 1000) * v.sampleRate));
+        progress = time / transitionFrames;
+      }
+      progress = Math.max(0, Math.min(1, progress));
+      var nyquistLimit = Math.floor((v.sampleRate * 0.5) / freq);
+      var limit = Math.min(16, nyquistLimit, from.length, to.length), sum = 0, norm = 0;
+      for (var h = 1; h <= limit; h++) {
+        var a = Math.max(0, Math.min(1, from[h - 1] || 0));
+        var b = Math.max(0, Math.min(1, to[h - 1] || 0));
+        var amplitude = a + ((b - a) * progress);
+        sum += Math.sin(2 * Math.PI * h * freq * time / v.sampleRate) * amplitude;
+        norm += amplitude;
+      }
+      return norm > 0 ? Math.max(-1, Math.min(1, sum / norm)) : 0;
     }
     function fm(freq, time) {
       var amount = Math.max(0, Math.min(1, v.fmMacroAmount));
@@ -630,6 +708,7 @@ mergeInto(LibraryManager.library, {
     }
     function gen(freq, time, advanceSampling) {
       if (v.waveform !== 7 && freq <= 0) return 0;
+      if (v.useGeneratedMultiframeTimbre && v.waveform === 11) return generatedMultiframe(freq, time);
       if (v.useWavetable && v.wavetable.length && v.waveform !== 5) return wavetable(time, freq);
       switch (v.waveform) {
         case 0: return sine(freq, time);

@@ -1,6 +1,11 @@
 using System;
 using UnityEngine;
 
+/// <summary>
+/// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial.
+/// Desarrollado por: Miguel Ángel Olivares Tenorio.
+/// Descripción: Motor DSP administrado usado como fallback y referencia educativa para la síntesis procedural.
+/// </summary>
 public class ManagedProceduralSynthVoice
 {
     private ProceduralSynthVoiceConfig config = new ProceduralSynthVoiceConfig();
@@ -11,6 +16,7 @@ public class ManagedProceduralSynthVoice
     private bool releaseTriggered;
     private int releaseStartTimeIndex;
     private float releaseStartLevel;
+    private readonly float[] currentGeneratedHarmonics = new float[TimbrePreset.MaxHarmonics];
     private readonly System.Random rng = new System.Random();
 
     public void UpdateConfig(ProceduralSynthVoiceConfig nextConfig)
@@ -96,7 +102,12 @@ public class ManagedProceduralSynthVoice
             return 0f;
 
         if (config.useWavetable && config.wavetable != null && config.wavetable.Length > 0 && config.waveform != (int)Osc.WaveFormType.FM)
+        {
+            if (config.useGeneratedMultiframeTimbre && config.waveform == (int)Osc.WaveFormType.Gemini)
+                return GeneratedMultiframe(currentFrequency, currentTime, sampleRate);
+
             return GetWavetableSample(currentTime, currentFrequency, sampleRate);
+        }
 
         switch ((Osc.WaveFormType)config.waveform)
         {
@@ -119,6 +130,24 @@ public class ManagedProceduralSynthVoice
             default:
                 return 0f;
         }
+    }
+
+    private float GeneratedMultiframe(float currentFrequency, int currentTime, float sampleRate)
+    {
+        if (releaseTriggered && currentTime >= releaseStartTimeIndex)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((config.releaseMs / 1000f) * sampleRate));
+            float releaseProgress = (float)(currentTime - releaseStartTimeIndex) / releaseFrames;
+            HarmonicUtils.LerpHarmonics(config.generatedSustainHarmonics, config.generatedReleaseHarmonics, releaseProgress, currentGeneratedHarmonics);
+        }
+        else
+        {
+            int transitionFrames = Mathf.Max(1, Mathf.RoundToInt(((config.attackMs + config.decayMs) / 1000f) * sampleRate));
+            float transitionProgress = (float)currentTime / transitionFrames;
+            HarmonicUtils.LerpHarmonics(config.generatedAttackHarmonics, config.generatedSustainHarmonics, transitionProgress, currentGeneratedHarmonics);
+        }
+
+        return HarmonicUtils.AdditiveSample(currentGeneratedHarmonics, currentFrequency, currentTime, sampleRate);
     }
 
     private float Sine(float f, int t, float sr)

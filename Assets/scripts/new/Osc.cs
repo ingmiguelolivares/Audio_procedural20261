@@ -106,6 +106,11 @@ public class Osc : MonoBehaviour
 
     // Arreglo que contendrá los valores precalculados de la forma de onda cuando se use wavetable.
     private float[] wavetable;
+    private bool useGeneratedMultiframeTimbre = false;
+    private float[] generatedAttackHarmonics = new float[TimbrePreset.MaxHarmonics];
+    private float[] generatedSustainHarmonics = new float[TimbrePreset.MaxHarmonics];
+    private float[] generatedReleaseHarmonics = new float[TimbrePreset.MaxHarmonics];
+    private float[] generatedCurrentHarmonics = new float[TimbrePreset.MaxHarmonics];
 
     [Header("Loaders de wavetables externas")]
     public bool autoUseWavetableForSamplingAndCustom = true;
@@ -237,7 +242,7 @@ public class Osc : MonoBehaviour
     // Cambia el tipo de forma de onda.
     public void WaveFormChange(WaveFormType tipo)
     {
-        if (FormType == tipo && wavetable != null)
+        if (FormType == tipo && wavetable != null && (!IsExternalWavetableMode(tipo) || currentWavetableLoadedFromExternal))
             return;
 
         FormType = tipo;
@@ -673,10 +678,28 @@ public class Osc : MonoBehaviour
         return useWavetable;
     }
 
+    private bool IsExternalWavetableMode(WaveFormType type)
+    {
+        return type == WaveFormType.Sampling1 ||
+               type == WaveFormType.Custom1 ||
+               type == WaveFormType.Custom2 ||
+               type == WaveFormType.Custom3 ||
+               type == WaveFormType.Gemini;
+    }
+
+    private bool HasValidWavetable()
+    {
+        return wavetable != null && wavetable.Length > 0;
+    }
+
     // Genera o regenera la tabla de ondas.
     public void GenerateWavetable()
     {
+        if (currentWavetableLoadedFromExternal && IsExternalWavetableMode(FormType) && HasValidWavetable())
+            return;
+
         currentWavetableLoadedFromExternal = false;
+        useGeneratedMultiframeTimbre = false;
 
         if (ShouldUseWavetableForCurrentWaveform())
         {
@@ -790,6 +813,7 @@ public class Osc : MonoBehaviour
         useWavetable = true;
         currentWavetableLoadedFromExternal = true;
         useAudioClipADSR = false;
+        ApplyGeneratedPresetData(null);
 
         A = Mathf.Clamp(generatedTimbre.adsr.attackMs, 1f, 400f);
         D = Mathf.Clamp(generatedTimbre.adsr.decayMs, 1f, 1000f);
@@ -827,6 +851,7 @@ public class Osc : MonoBehaviour
         useWavetable = true;
         currentWavetableLoadedFromExternal = true;
         useAudioClipADSR = false;
+        ApplyGeneratedPresetData(generatedTimbre.preset);
 
         A = Mathf.Clamp(generatedTimbre.adsr.attackMs, 1f, 400f);
         D = Mathf.Clamp(generatedTimbre.adsr.decayMs, 1f, 1000f);
@@ -837,6 +862,21 @@ public class Osc : MonoBehaviour
 
         UpdateADSR();
         MarkExternalBackendDirty();
+    }
+
+    private void ApplyGeneratedPresetData(TimbrePreset preset)
+    {
+        if (preset == null)
+        {
+            useGeneratedMultiframeTimbre = false;
+            return;
+        }
+
+        preset.Validate();
+        generatedAttackHarmonics = HarmonicUtils.ValidateHarmonicArray(preset.attackHarmonics);
+        generatedSustainHarmonics = HarmonicUtils.ValidateHarmonicArray(preset.sustainHarmonics);
+        generatedReleaseHarmonics = HarmonicUtils.ValidateHarmonicArray(preset.releaseHarmonics);
+        useGeneratedMultiframeTimbre = true;
     }
 
     // Parámetros ADSR.
@@ -1224,11 +1264,15 @@ public class Osc : MonoBehaviour
             }
             else
             {
-                X = shouldUseWavetable
+                X = useGeneratedMultiframeTimbre && FormType == WaveFormType.Gemini
+                    ? GetGeneratedMultiframeSample(currentTime, currentFrequency)
+                    : shouldUseWavetable
                     ? GetWavetableSample(currentTime, currentFrequency)
                     : GenerateWaveSample(FormType, currentFrequency, currentTime);
 
-                X1 = shouldUseWavetable
+                X1 = useGeneratedMultiframeTimbre && FormType == WaveFormType.Gemini
+                    ? GetGeneratedMultiframeSample(currentTime, detunedFrequency)
+                    : shouldUseWavetable
                     ? GetWavetableSample(currentTime, detunedFrequency)
                     : GenerateWaveSample(FormType, detunedFrequency, currentTime);
             }
@@ -1257,6 +1301,27 @@ public class Osc : MonoBehaviour
                 break;
             }
         }
+    }
+
+    private float GetGeneratedMultiframeSample(int currentTime, float frequency)
+    {
+        if (frequency <= 0f)
+            return 0f;
+
+        if (releaseTriggered && currentTime >= releaseStartTimeIndex)
+        {
+            int releaseFrames = Mathf.Max(1, Mathf.RoundToInt((R / 1000f) * FM));
+            float releaseProgress = (float)(currentTime - releaseStartTimeIndex) / releaseFrames;
+            HarmonicUtils.LerpHarmonics(generatedSustainHarmonics, generatedReleaseHarmonics, releaseProgress, generatedCurrentHarmonics);
+        }
+        else
+        {
+            int transitionFrames = Mathf.Max(1, Mathf.RoundToInt(((A + D) / 1000f) * FM));
+            float transitionProgress = (float)currentTime / transitionFrames;
+            HarmonicUtils.LerpHarmonics(generatedAttackHarmonics, generatedSustainHarmonics, transitionProgress, generatedCurrentHarmonics);
+        }
+
+        return HarmonicUtils.AdditiveSample(generatedCurrentHarmonics, frequency, currentTime, FM);
     }
 
     // Generación directa sin wavetable.
@@ -1483,6 +1548,10 @@ public class Osc : MonoBehaviour
             samplingChannels = samplingChannels,
             samplingTotalFrames = samplingTotalFrames,
             amplitudes = (float[])AmplitudesLv.Clone(),
+            useGeneratedMultiframeTimbre = useGeneratedMultiframeTimbre,
+            generatedAttackHarmonics = generatedAttackHarmonics != null ? (float[])generatedAttackHarmonics.Clone() : new float[0],
+            generatedSustainHarmonics = generatedSustainHarmonics != null ? (float[])generatedSustainHarmonics.Clone() : new float[0],
+            generatedReleaseHarmonics = generatedReleaseHarmonics != null ? (float[])generatedReleaseHarmonics.Clone() : new float[0],
             wavetable = wavetable != null ? (float[])wavetable.Clone() : new float[0],
             samplingData = samplingData != null ? (float[])samplingData.Clone() : new float[0],
             audioClipAdsrData = audioClipADSRData != null ? (float[])audioClipADSRData.Clone() : new float[0]

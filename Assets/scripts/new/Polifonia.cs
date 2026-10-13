@@ -5,9 +5,12 @@ using UnityEngine.UI;
 using TMPro;
 using static Osc; // Permite acceder directamente a los elementos estáticos o públicos de la clase Osc
 
-// Esta clase maneja la polifonía en un instrumento virtual, permitiendo instanciar múltiples Osc
-// cada uno reproduciendo una nota distinta y administrar de manera centralizada los parámetros
-// octava, forma de onda, envolvente ADSR, sampling, FM, wavetable, etc.
+/// <summary>
+/// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial.
+/// Desarrollado por: Miguel Ángel Olivares Tenorio.
+/// Descripción: Controlador de polifonía que crea voces Osc, sincroniza la UI
+/// y propaga timbres generados por IA a voces activas y futuras.
+/// </summary>
 public class Polifonia : MonoBehaviour
 {
     // Prefab que contiene el componente Osc.
@@ -121,6 +124,8 @@ public class Polifonia : MonoBehaviour
     public int SamplingEndFrameValue = 0;
 
     public bool WavetableValue = false;
+    private GroqTimbreGenerator.GeneratedTimbre currentGeneratedTimbre;
+    private bool generatedTimbreActive = false;
 
     void Start()
     {
@@ -816,9 +821,14 @@ public class Polifonia : MonoBehaviour
 
         WaveFormType selectedType = (WaveFormType)waveformValue;
 
+        generatedTimbreActive = selectedType == WaveFormType.Gemini && IsCurrentGeneratedTimbreUsable();
+
         foreach (var osc in activeOscillators.Values)
         {
-            osc.WaveFormChange(selectedType);
+            if (generatedTimbreActive)
+                osc.ApplyGeneratedTimbre(currentGeneratedTimbre);
+            else
+                osc.WaveFormChange(selectedType);
         }
 
         if (WaveFormText != null)
@@ -1032,6 +1042,9 @@ public class Polifonia : MonoBehaviour
                 ApplyADSRClipSettingsToOscillator(oscScript);
                 ApplyAdsrCurveModesToOscillator(oscScript);
 
+                if (generatedTimbreActive && IsCurrentGeneratedTimbreUsable())
+                    oscScript.ApplyGeneratedTimbre(currentGeneratedTimbre);
+
                 oscScript.KeyboardDown(note);
             }
         }
@@ -1080,5 +1093,98 @@ public class Polifonia : MonoBehaviour
         ApplySamplingSettingsToOscillator(osc);
         ApplyADSRClipSettingsToOscillator(osc);
         ApplyAdsrCurveModesToOscillator(osc);
+    }
+
+    /// <summary>
+    /// Conserva el último timbre generado por IA y lo aplica a las voces activas.
+    /// Las voces futuras reciben el mismo timbre en NoteOn antes de comenzar a sonar.
+    /// </summary>
+    /// <param name="generatedTimbre">Wavetable, preset multiframe y ADSR creados localmente desde Groq o fallback.</param>
+    public void ApplyGeneratedTimbre(GroqTimbreGenerator.GeneratedTimbre generatedTimbre)
+    {
+        if (generatedTimbre == null || !generatedTimbre.IsUsable())
+        {
+            Debug.LogWarning("[Polifonia] Generated timbre is not valid. Active oscillators were preserved.");
+            return;
+        }
+
+        currentGeneratedTimbre = generatedTimbre;
+        generatedTimbreActive = true;
+        SyncGeneratedTimbreUI(generatedTimbre);
+
+        foreach (var osc in activeOscillators.Values)
+        {
+            if (osc != null)
+                osc.ApplyGeneratedTimbre(generatedTimbre);
+        }
+    }
+
+    /// <summary>
+    /// Indica si existe un timbre generado listo para propagarse a una voz Osc.
+    /// </summary>
+    /// <returns>True cuando el timbre actual tiene wavetable, preset y ADSR válidos.</returns>
+    private bool IsCurrentGeneratedTimbreUsable()
+    {
+        return currentGeneratedTimbre != null && currentGeneratedTimbre.IsUsable();
+    }
+
+    /// <summary>
+    /// Actualiza los controles visuales para mostrar el ADSR y modo de wavetable generada.
+    /// Usa SetValueWithoutNotify para evitar bucles de callbacks desde la UI.
+    /// </summary>
+    /// <param name="generatedTimbre">Timbre aplicado al motor de síntesis.</param>
+    private void SyncGeneratedTimbreUI(GroqTimbreGenerator.GeneratedTimbre generatedTimbre)
+    {
+        WaveformValue = (int)WaveFormType.Gemini;
+        WavetableValue = true;
+        UseADSRClipValue = false;
+
+        AttackValue = Mathf.RoundToInt(generatedTimbre.adsr.attackMs);
+        DecayValue = Mathf.RoundToInt(generatedTimbre.adsr.decayMs);
+        SustainValue = Mathf.RoundToInt(generatedTimbre.adsr.sustainMs);
+        SustainLevelValue = generatedTimbre.adsr.sustainLevel;
+        ReleaseValue = Mathf.RoundToInt(generatedTimbre.adsr.releaseMs);
+
+        if (WaveformSl != null)
+            WaveformSl.SetValueWithoutNotify(WaveformValue);
+
+        if (WavetableToggle != null)
+            WavetableToggle.SetIsOnWithoutNotify(WavetableValue);
+
+        if (UseADSRClipToggle != null)
+            UseADSRClipToggle.SetIsOnWithoutNotify(UseADSRClipValue);
+
+        if (AttackSlider != null)
+            AttackSlider.SetValueWithoutNotify(AttackValue);
+
+        if (DecaySlider != null)
+            DecaySlider.SetValueWithoutNotify(DecayValue);
+
+        if (SustainSlider != null)
+            SustainSlider.SetValueWithoutNotify(SustainValue);
+
+        if (SustainLevelSlider != null)
+            SustainLevelSlider.SetValueWithoutNotify(SustainLevelValue);
+
+        if (ReleaseSlider != null)
+            ReleaseSlider.SetValueWithoutNotify(ReleaseValue);
+
+        if (WaveFormText != null)
+            WaveFormText.SetText("Gemini");
+
+        if (AttackText != null)
+            AttackText.text = AttackValue.ToString("F2");
+
+        if (DecayText != null)
+            DecayText.text = DecayValue.ToString("F2");
+
+        if (SustainText != null)
+            SustainText.text = SustainValue.ToString();
+
+        if (SustainLevelText != null)
+            SustainLevelText.text = SustainLevelValue.ToString("F2");
+
+        if (ReleaseText != null)
+            ReleaseText.text = ReleaseValue.ToString("F2");
     }
 }

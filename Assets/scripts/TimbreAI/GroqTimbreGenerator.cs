@@ -4,19 +4,30 @@ using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
+/// <summary>
+/// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial.
+/// Desarrollado por: Miguel Ángel Olivares Tenorio.
+/// Descripción: Solicita descriptores tímbricos a GroqCloud, construye presets locales
+/// y entrega el resultado al sistema de polifonía sin ejecutar síntesis de audio en la API.
+/// </summary>
 public class GroqTimbreGenerator : MonoBehaviour
 {
     public const int WavetableSize = 2048;
+    public const string EditorPrefsApiKeyKey = "SintesisProceduralIA.Groq.ApiKey";
     private const string GroqEndpoint = "https://api.groq.com/openai/v1/chat/completions";
 
     [Header("Target synth")]
+    public Polifonia targetPolifonia;
     public Osc targetOsc;
 
     [Header("GroqCloud")]
-    [Tooltip("Assign each student's GroqCloud API key in the Inspector for local testing. Do not commit scenes or prefabs that contain real keys.")]
-    public string groqApiKey = string.Empty;
+    [SerializeField, HideInInspector, FormerlySerializedAs("groqApiKey")]
+    private string legacySerializedGroqApiKey = string.Empty;
+    [NonSerialized]
+    private string sessionGroqApiKey = string.Empty;
     public string modelName = "openai/gpt-oss-20b";
     [Range(1, 120)]
     public int requestTimeoutSeconds = 30;
@@ -26,6 +37,10 @@ public class GroqTimbreGenerator : MonoBehaviour
     public bool applyFallbackWhenGroqCloudFails = false;
 
     [Header("Prompt UI")]
+    [Tooltip("Campo opcional para introducir una API key durante ejecución. No se guarda en disco.")]
+    public TMP_InputField runtimeApiKeyInput;
+    public Button applyRuntimeApiKeyButton;
+    public Button clearRuntimeApiKeyButton;
     public TMP_InputField promptInput;
     public Button generatePromptButton;
 
@@ -73,6 +88,7 @@ public class GroqTimbreGenerator : MonoBehaviour
     [Serializable]
     public class GeneratedTimbre
     {
+        public TimbrePreset preset = new TimbrePreset();
         public TimbreDescriptor timbre = new TimbreDescriptor();
         public ADSRDescriptor adsr = new ADSRDescriptor();
         public float[] wavetable = Array.Empty<float>();
@@ -83,16 +99,20 @@ public class GroqTimbreGenerator : MonoBehaviour
 
         public bool IsUsable()
         {
-            return wavetable != null && wavetable.Length == WavetableSize && adsr != null;
+            return preset != null && wavetable != null && wavetable.Length == WavetableSize && adsr != null;
         }
     }
 
     [Serializable]
     private class GroqStructuredTimbre
     {
+        public string timbreName = "Groq Timbre";
         public TimbreDescriptor timbre = new TimbreDescriptor();
         public ADSRDescriptor adsr = new ADSRDescriptor();
         public HarmonicDescriptor[] harmonics = Array.Empty<HarmonicDescriptor>();
+        public float[] attackHarmonics = Array.Empty<float>();
+        public float[] sustainHarmonics = Array.Empty<float>();
+        public float[] releaseHarmonics = Array.Empty<float>();
     }
 
 #pragma warning disable 0649
@@ -130,14 +150,28 @@ public class GroqTimbreGenerator : MonoBehaviour
     private Coroutine runningRequest;
     private GeneratedTimbre lastValidTimbre;
 
+    public bool HasSessionApiKey => !string.IsNullOrWhiteSpace(sessionGroqApiKey);
+
     private void Awake()
     {
+        MigrateLegacySerializedApiKeyIfNeeded();
+        LoadEditorApiKeyIntoSession();
+
+        if (targetPolifonia == null)
+            targetPolifonia = FindAnyObjectByType<Polifonia>();
+
         if (targetOsc == null)
             targetOsc = FindAnyObjectByType<Osc>();
     }
 
     private void OnEnable()
     {
+        if (applyRuntimeApiKeyButton != null)
+            applyRuntimeApiKeyButton.onClick.AddListener(ApplyRuntimeApiKeyFromUI);
+
+        if (clearRuntimeApiKeyButton != null)
+            clearRuntimeApiKeyButton.onClick.AddListener(ClearSessionApiKey);
+
         if (generatePromptButton != null)
             generatePromptButton.onClick.AddListener(GenerateFromPromptUI);
 
@@ -147,12 +181,98 @@ public class GroqTimbreGenerator : MonoBehaviour
 
     private void OnDisable()
     {
+        if (applyRuntimeApiKeyButton != null)
+            applyRuntimeApiKeyButton.onClick.RemoveListener(ApplyRuntimeApiKeyFromUI);
+
+        if (clearRuntimeApiKeyButton != null)
+            clearRuntimeApiKeyButton.onClick.RemoveListener(ClearSessionApiKey);
+
         if (generatePromptButton != null)
             generatePromptButton.onClick.RemoveListener(GenerateFromPromptUI);
 
         if (analyzeAudioButton != null)
             analyzeAudioButton.onClick.RemoveListener(GenerateFromAudioUI);
     }
+
+    /// <summary>
+    /// Guarda una API key solo en memoria para la sesión actual.
+    /// En WebGL este valor existe en el cliente mientras se usa y no debe considerarse secreto de producción.
+    /// </summary>
+    /// <param name="apiKey">Clave introducida por el usuario en el Inspector o en la UI de ejecución.</param>
+    public void SetSessionApiKey(string apiKey)
+    {
+        sessionGroqApiKey = string.IsNullOrWhiteSpace(apiKey) ? string.Empty : apiKey.Trim();
+        SetStatus(HasSessionApiKey ? "Groq API Key configurada para esta sesión." : "Groq API Key no configurada.");
+    }
+
+    /// <summary>
+    /// Elimina la API key de la memoria de ejecución y limpia el campo visual opcional.
+    /// No borra EditorPrefs; esa acción corresponde al Inspector del Editor.
+    /// </summary>
+    public void ClearSessionApiKey()
+    {
+        sessionGroqApiKey = string.Empty;
+
+        if (runtimeApiKeyInput != null)
+            runtimeApiKeyInput.SetTextWithoutNotify(string.Empty);
+
+        SetStatus("Groq API Key eliminada de la sesión.");
+    }
+
+    /// <summary>
+    /// Lee la API key escrita en la UI de ejecución y la conserva únicamente en memoria.
+    /// </summary>
+    public void ApplyRuntimeApiKeyFromUI()
+    {
+        SetSessionApiKey(runtimeApiKeyInput != null ? runtimeApiKeyInput.text : string.Empty);
+    }
+
+    private void MigrateLegacySerializedApiKeyIfNeeded()
+    {
+#if UNITY_EDITOR
+        if (string.IsNullOrWhiteSpace(legacySerializedGroqApiKey))
+            return;
+
+        if (!UnityEditor.EditorPrefs.HasKey(EditorPrefsApiKeyKey))
+            UnityEditor.EditorPrefs.SetString(EditorPrefsApiKeyKey, legacySerializedGroqApiKey.Trim());
+
+        sessionGroqApiKey = legacySerializedGroqApiKey.Trim();
+        legacySerializedGroqApiKey = string.Empty;
+        UnityEditor.EditorUtility.SetDirty(this);
+#else
+        legacySerializedGroqApiKey = string.Empty;
+#endif
+    }
+
+    private void LoadEditorApiKeyIntoSession()
+    {
+#if UNITY_EDITOR
+        if (!string.IsNullOrWhiteSpace(sessionGroqApiKey))
+            return;
+
+        sessionGroqApiKey = UnityEditor.EditorPrefs.GetString(EditorPrefsApiKeyKey, string.Empty);
+#endif
+    }
+
+#if UNITY_EDITOR
+    public static bool HasEditorStoredApiKey()
+    {
+        return !string.IsNullOrWhiteSpace(UnityEditor.EditorPrefs.GetString(EditorPrefsApiKeyKey, string.Empty));
+    }
+
+    public static void SaveEditorApiKey(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+            UnityEditor.EditorPrefs.DeleteKey(EditorPrefsApiKeyKey);
+        else
+            UnityEditor.EditorPrefs.SetString(EditorPrefsApiKeyKey, apiKey.Trim());
+    }
+
+    public static void DeleteEditorApiKey()
+    {
+        UnityEditor.EditorPrefs.DeleteKey(EditorPrefsApiKeyKey);
+    }
+#endif
 
     [ContextMenu("Generate From Prompt")]
     public void GenerateFromPromptUI()
@@ -191,10 +311,10 @@ public class GroqTimbreGenerator : MonoBehaviour
             yield break;
         }
 
-        string apiKey = string.IsNullOrWhiteSpace(groqApiKey) ? string.Empty : groqApiKey.Trim();
+        string apiKey = string.IsNullOrWhiteSpace(sessionGroqApiKey) ? string.Empty : sessionGroqApiKey.Trim();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            ReportFailure("Configura groqApiKey en el Inspector antes de llamar a GroqCloud.");
+            ReportFailure("Configura la Groq API Key en el Inspector o en la UI de ejecución antes de llamar a GroqCloud.");
 
             if (applyFallbackWhenGroqCloudFails)
                 ApplyGeneratedTimbre(BuildFallbackTimbre(prompt, "AI_GENERATION=FAILED. FALLBACK=USED. Falta groqApiKey."), onGenerated);
@@ -219,7 +339,7 @@ public class GroqTimbreGenerator : MonoBehaviour
                 yield break;
             }
 
-            if (!TryParseGroqResponse(request.downloadHandler.text, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out string parseError))
+            if (!TryParseGroqResponse(request.downloadHandler.text, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out TimbrePreset preset, out string parseError))
             {
                 ReportFailure(parseError);
 
@@ -229,7 +349,7 @@ public class GroqTimbreGenerator : MonoBehaviour
                 yield break;
             }
 
-            GeneratedTimbre generated = BuildGeneratedTimbre(descriptor, adsr, "Prompt", true, false, "AI_GENERATION=SUCCESS. Generado desde prompt con GroqCloud.");
+            GeneratedTimbre generated = BuildGeneratedTimbre(preset, descriptor, adsr, "Prompt", true, false, "AI_GENERATION=SUCCESS. Generado desde prompt con GroqCloud.");
             ApplyGeneratedTimbre(generated, onGenerated);
         }
     }
@@ -265,17 +385,108 @@ public class GroqTimbreGenerator : MonoBehaviour
 
         ValidateDescriptor(descriptor);
         ValidateAdsr(adsr);
+        TimbrePreset preset = BuildPresetFromDescriptor(descriptor, adsr, source);
+        return BuildGeneratedTimbre(preset, descriptor, adsr, source, usedGroq, usedLocalDsp, message);
+    }
 
+    private GeneratedTimbre BuildGeneratedTimbre(TimbrePreset preset, TimbreDescriptor descriptor, ADSRDescriptor adsr, string source, bool usedGroq, bool usedLocalDsp, string message)
+    {
+        descriptor = descriptor ?? new TimbreDescriptor();
+        adsr = adsr ?? new ADSRDescriptor();
+        preset = preset ?? BuildPresetFromDescriptor(descriptor, adsr, source);
+        preset.Validate();
+        ValidateDescriptor(descriptor);
+        ValidateAdsr(adsr);
         return new GeneratedTimbre
         {
+            preset = preset,
             timbre = descriptor,
             adsr = adsr,
-            wavetable = BuildWavetableFromDescriptor(descriptor),
+            wavetable = HarmonicUtils.BuildBandLimitedWavetable(preset.sustainHarmonics, TimbrePreset.MaxHarmonics, WavetableSize),
             source = source,
             usedGroq = usedGroq,
             usedLocalDsp = usedLocalDsp,
             message = message
         };
+    }
+
+    /// <summary>
+    /// Convierte el descriptor antiguo de Groq en el preset multiframe compartido.
+    /// Si Groq no entrega tres frames explícitos, se derivan variaciones simples para ataque y release.
+    /// </summary>
+    /// <param name="descriptor">Descriptor tímbrico validado.</param>
+    /// <param name="adsr">ADSR validado en milisegundos heredados.</param>
+    /// <param name="name">Nombre o fuente del preset.</param>
+    /// <returns>Preset multiframe listo para Legacy, External DSP y WebGL.</returns>
+    private static TimbrePreset BuildPresetFromDescriptor(TimbreDescriptor descriptor, ADSRDescriptor adsr, string name)
+    {
+        TimbrePreset preset = new TimbrePreset();
+        preset.timbreName = string.IsNullOrWhiteSpace(name) ? "Groq Timbre" : name;
+        preset.sustainHarmonics = HarmonicsToAmplitudes(descriptor != null ? descriptor.harmonics : null);
+        preset.attackHarmonics = ShapeAttackHarmonics(preset.sustainHarmonics, descriptor != null ? descriptor.brightness : 0.35f);
+        preset.releaseHarmonics = ShapeReleaseHarmonics(preset.sustainHarmonics, descriptor != null ? descriptor.warmth : 0.5f);
+        preset.adsr = new AdsrSettings
+        {
+            attackSeconds = adsr.attackMs / 1000f,
+            decaySeconds = adsr.decayMs / 1000f,
+            sustainLevel = adsr.sustainLevel,
+            releaseSeconds = adsr.releaseMs / 1000f,
+            legacySustainSeconds = adsr.sustainMs / 1000f
+        };
+        preset.Validate();
+        return preset;
+    }
+
+    private static float[] HarmonicsToAmplitudes(HarmonicDescriptor[] harmonics)
+    {
+        float[] amplitudes = new float[TimbrePreset.MaxHarmonics];
+
+        if (harmonics == null || harmonics.Length == 0)
+        {
+            amplitudes[0] = 1f;
+            return amplitudes;
+        }
+
+        for (int i = 0; i < harmonics.Length; i++)
+        {
+            if (harmonics[i] == null)
+                continue;
+
+            int index = Mathf.Clamp(harmonics[i].index, 1, TimbrePreset.MaxHarmonics) - 1;
+            amplitudes[index] = Mathf.Max(amplitudes[index], Mathf.Clamp01(harmonics[i].amplitude));
+        }
+
+        return HarmonicUtils.ValidateHarmonicArray(amplitudes);
+    }
+
+    private static float[] ShapeAttackHarmonics(float[] sustain, float brightness)
+    {
+        float[] result = new float[TimbrePreset.MaxHarmonics];
+        float bright = Mathf.Clamp01(brightness);
+
+        for (int i = 0; i < result.Length; i++)
+        {
+            float lift = Mathf.Lerp(1.05f, 1.65f, bright) * Mathf.Lerp(1f, 1.35f, (float)i / Mathf.Max(1, result.Length - 1));
+            result[i] = Mathf.Clamp01((sustain != null && i < sustain.Length ? sustain[i] : 0f) * lift);
+        }
+
+        result[0] = Mathf.Max(result[0], 1f);
+        return HarmonicUtils.ValidateHarmonicArray(result);
+    }
+
+    private static float[] ShapeReleaseHarmonics(float[] sustain, float warmth)
+    {
+        float[] result = new float[TimbrePreset.MaxHarmonics];
+        float darkening = Mathf.Lerp(1.2f, 2.2f, Mathf.Clamp01(warmth));
+
+        for (int i = 0; i < result.Length; i++)
+        {
+            float harmonic = i + 1f;
+            result[i] = Mathf.Clamp01((sustain != null && i < sustain.Length ? sustain[i] : 0f) / Mathf.Pow(harmonic, darkening * 0.18f));
+        }
+
+        result[0] = Mathf.Max(result[0], 0.8f);
+        return HarmonicUtils.ValidateHarmonicArray(result);
     }
 
     public static float[] BuildWavetableFromDescriptor(TimbreDescriptor descriptor)
@@ -329,9 +540,9 @@ public class GroqTimbreGenerator : MonoBehaviour
             "Return only JSON that matches the provided schema. " +
             "Do not include Markdown. Do not add explanations before or after the JSON. " +
             "Do not generate audio. Do not generate individual samples. Do not return 2048 wavetable values. " +
-            "Describe the sound using harmonic amplitudes, phases, timbre values, and ADSR values. " +
+            "Describe the sound using a short timbre name, three harmonic amplitude frames, timbre values, and ADSR values. " +
             "ADSR units must be milliseconds for attackMs, decayMs, sustainMs, releaseMs, and 0..1 for sustainLevel. " +
-            "Keep harmonics musically useful and compact, preferably 1 to 24 harmonics.";
+            "Each harmonic frame must contain 16 normalized amplitudes. Do not use phases for the multiframe output.";
 
         return "{"
             + "\"model\":\"" + JsonEscape(modelName) + "\","
@@ -340,6 +551,7 @@ public class GroqTimbreGenerator : MonoBehaviour
             + "{\"role\":\"user\",\"content\":\"" + JsonEscape(prompt) + "\"}"
             + "],"
             + "\"temperature\":0.35,"
+            + "\"reasoning_effort\":\"low\","
             + "\"max_completion_tokens\":" + Mathf.Clamp(maxCompletionTokens, 128, 4096) + ","
             + "\"response_format\":{"
             + "\"type\":\"json_schema\","
@@ -357,6 +569,7 @@ public class GroqTimbreGenerator : MonoBehaviour
             + "\"type\":\"object\","
             + "\"additionalProperties\":false,"
             + "\"properties\":{"
+            + "\"timbreName\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":48},"
             + "\"timbre\":{\"type\":\"object\",\"properties\":{"
             + "\"brightness\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},"
             + "\"harmonicity\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},"
@@ -364,11 +577,9 @@ public class GroqTimbreGenerator : MonoBehaviour
             + "\"warmth\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},"
             + "\"fundamentalStrength\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}"
             + "},\"required\":[\"brightness\",\"harmonicity\",\"noisiness\",\"warmth\",\"fundamentalStrength\"],\"additionalProperties\":false},"
-            + "\"harmonics\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":32,\"items\":{\"type\":\"object\",\"properties\":{"
-            + "\"index\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":64},"
-            + "\"amplitude\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},"
-            + "\"phaseRadians\":{\"type\":\"number\",\"minimum\":-6.283185,\"maximum\":6.283185}"
-            + "},\"required\":[\"index\",\"amplitude\",\"phaseRadians\"],\"additionalProperties\":false}},"
+            + "\"attackHarmonics\":{\"type\":\"array\",\"minItems\":16,\"maxItems\":16,\"items\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}},"
+            + "\"sustainHarmonics\":{\"type\":\"array\",\"minItems\":16,\"maxItems\":16,\"items\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}},"
+            + "\"releaseHarmonics\":{\"type\":\"array\",\"minItems\":16,\"maxItems\":16,\"items\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}},"
             + "\"adsr\":{\"type\":\"object\",\"properties\":{"
             + "\"attackMs\":{\"type\":\"number\",\"minimum\":1,\"maximum\":400},"
             + "\"decayMs\":{\"type\":\"number\",\"minimum\":1,\"maximum\":1000},"
@@ -377,14 +588,15 @@ public class GroqTimbreGenerator : MonoBehaviour
             + "\"releaseMs\":{\"type\":\"number\",\"minimum\":1,\"maximum\":1000}"
             + "},\"required\":[\"attackMs\",\"decayMs\",\"sustainMs\",\"sustainLevel\",\"releaseMs\"],\"additionalProperties\":false}"
             + "},"
-            + "\"required\":[\"timbre\",\"harmonics\",\"adsr\"]"
+            + "\"required\":[\"timbreName\",\"timbre\",\"attackHarmonics\",\"sustainHarmonics\",\"releaseHarmonics\",\"adsr\"]"
             + "}";
     }
 
-    private bool TryParseGroqResponse(string responseJson, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out string error)
+    private bool TryParseGroqResponse(string responseJson, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out TimbrePreset preset, out string error)
     {
         descriptor = null;
         adsr = null;
+        preset = null;
         error = string.Empty;
 
         if (string.IsNullOrWhiteSpace(responseJson))
@@ -433,13 +645,14 @@ public class GroqTimbreGenerator : MonoBehaviour
         }
 
         structuredJson = ExtractJsonObject(structuredJson);
-        return TryParseStructuredTimbreJson(structuredJson, out descriptor, out adsr, out error);
+        return TryParseStructuredTimbreJson(structuredJson, out descriptor, out adsr, out preset, out error);
     }
 
-    private bool TryParseStructuredTimbreJson(string structuredJson, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out string error)
+    private bool TryParseStructuredTimbreJson(string structuredJson, out TimbreDescriptor descriptor, out ADSRDescriptor adsr, out TimbrePreset preset, out string error)
     {
         descriptor = null;
         adsr = null;
+        preset = null;
         error = string.Empty;
 
         if (!LooksLikeStructuredTimbreJson(structuredJson))
@@ -466,17 +679,42 @@ public class GroqTimbreGenerator : MonoBehaviour
         }
 
         descriptor = structured.timbre ?? new TimbreDescriptor();
-        if (structured.harmonics == null || structured.harmonics.Length == 0)
+        if ((structured.sustainHarmonics == null || structured.sustainHarmonics.Length == 0) &&
+            (structured.harmonics == null || structured.harmonics.Length == 0))
         {
             error = "GroqCloud devolvió un descriptor sin armónicos.";
             return false;
         }
 
-        descriptor.harmonics = structured.harmonics;
+        float[] sustainHarmonics = structured.sustainHarmonics != null && structured.sustainHarmonics.Length > 0
+            ? HarmonicUtils.ValidateHarmonicArray(structured.sustainHarmonics)
+            : HarmonicsToAmplitudes(structured.harmonics);
+
+        descriptor.harmonics = AmplitudesToHarmonics(sustainHarmonics);
         adsr = structured.adsr ?? new ADSRDescriptor();
 
         ValidateDescriptor(descriptor);
         ValidateAdsr(adsr);
+        preset = new TimbrePreset
+        {
+            timbreName = string.IsNullOrWhiteSpace(structured.timbreName) ? "Groq Timbre" : structured.timbreName.Trim(),
+            attackHarmonics = structured.attackHarmonics != null && structured.attackHarmonics.Length > 0
+                ? HarmonicUtils.ValidateHarmonicArray(structured.attackHarmonics)
+                : ShapeAttackHarmonics(sustainHarmonics, descriptor.brightness),
+            sustainHarmonics = sustainHarmonics,
+            releaseHarmonics = structured.releaseHarmonics != null && structured.releaseHarmonics.Length > 0
+                ? HarmonicUtils.ValidateHarmonicArray(structured.releaseHarmonics)
+                : ShapeReleaseHarmonics(sustainHarmonics, descriptor.warmth),
+            adsr = new AdsrSettings
+            {
+                attackSeconds = adsr.attackMs / 1000f,
+                decaySeconds = adsr.decayMs / 1000f,
+                sustainLevel = adsr.sustainLevel,
+                releaseSeconds = adsr.releaseMs / 1000f,
+                legacySustainSeconds = adsr.sustainMs / 1000f
+            }
+        };
+        preset.Validate();
         return true;
     }
 
@@ -486,8 +724,26 @@ public class GroqTimbreGenerator : MonoBehaviour
             return false;
 
         return json.Contains("\"timbre\"") &&
-               json.Contains("\"harmonics\"") &&
+               (json.Contains("\"sustainHarmonics\"") || json.Contains("\"harmonics\"")) &&
                json.Contains("\"adsr\"");
+    }
+
+    private static HarmonicDescriptor[] AmplitudesToHarmonics(float[] amplitudes)
+    {
+        float[] safe = HarmonicUtils.ValidateHarmonicArray(amplitudes);
+        HarmonicDescriptor[] harmonics = new HarmonicDescriptor[safe.Length];
+
+        for (int i = 0; i < safe.Length; i++)
+        {
+            harmonics[i] = new HarmonicDescriptor
+            {
+                index = i + 1,
+                amplitude = safe[i],
+                phaseRadians = 0f
+            };
+        }
+
+        return harmonics;
     }
 
     private static string ExtractJsonObject(string text)
@@ -596,12 +852,16 @@ public class GroqTimbreGenerator : MonoBehaviour
             : ResampleWindowAsWavetable(mono, FindStableStart(envelope));
 
         TimbreDescriptor descriptor = EstimateDescriptorFromAudio(wavetable, adsr);
+        TimbrePreset preset = BuildPresetFromDescriptor(descriptor, adsr, "AudioClip");
 
         generated = new GeneratedTimbre
         {
+            preset = preset,
             timbre = descriptor,
             adsr = adsr,
-            wavetable = wavetable,
+            wavetable = wavetable != null && wavetable.Length == WavetableSize
+                ? wavetable
+                : HarmonicUtils.BuildBandLimitedWavetable(preset.sustainHarmonics, TimbrePreset.MaxHarmonics, WavetableSize),
             source = "AudioClip",
             usedGroq = false,
             usedLocalDsp = true,
@@ -840,11 +1100,21 @@ public class GroqTimbreGenerator : MonoBehaviour
             return;
         }
 
-        if (targetOsc == null)
-            targetOsc = FindAnyObjectByType<Osc>();
+        if (targetPolifonia == null)
+            targetPolifonia = FindAnyObjectByType<Polifonia>();
 
-        if (targetOsc != null)
-            targetOsc.ApplyGeneratedTimbre(generated);
+        if (targetPolifonia != null)
+        {
+            targetPolifonia.ApplyGeneratedTimbre(generated);
+        }
+        else
+        {
+            if (targetOsc == null)
+                targetOsc = FindAnyObjectByType<Osc>();
+
+            if (targetOsc != null)
+                targetOsc.ApplyGeneratedTimbre(generated);
+        }
 
         lastValidTimbre = generated;
         onGenerated?.Invoke(generated);

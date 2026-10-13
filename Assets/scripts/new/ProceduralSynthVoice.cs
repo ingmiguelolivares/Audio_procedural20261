@@ -2,6 +2,11 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
+/// <summary>
+/// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial.
+/// Desarrollado por: Miguel Ángel Olivares Tenorio.
+/// Descripción: Puente entre Unity y los motores DSP nativo, WebGL y administrado.
+/// </summary>
 public class ProceduralSynthVoice : IDisposable
 {
     private readonly int sampleRate;
@@ -37,6 +42,11 @@ public class ProceduralSynthVoice : IDisposable
 
             float[] amplitudes = config.amplitudes ?? Array.Empty<float>();
             SetHarmonics(nativeHandle, amplitudes, Mathf.Min(config.harmonicCount, amplitudes.Length));
+
+            float[] attackHarmonics = config.generatedAttackHarmonics ?? Array.Empty<float>();
+            float[] sustainHarmonics = config.generatedSustainHarmonics ?? Array.Empty<float>();
+            float[] releaseHarmonics = config.generatedReleaseHarmonics ?? Array.Empty<float>();
+            SetGeneratedTimbre(nativeHandle, config.useGeneratedMultiframeTimbre ? 1 : 0, attackHarmonics, attackHarmonics.Length, sustainHarmonics, sustainHarmonics.Length, releaseHarmonics, releaseHarmonics.Length);
 
             float[] wavetable = config.wavetable ?? Array.Empty<float>();
             SetWavetable(nativeHandle, wavetable, wavetable.Length);
@@ -229,6 +239,15 @@ public class ProceduralSynthVoice : IDisposable
 #endif
     }
 
+    private static void SetGeneratedTimbre(int handle, int enabled, float[] attack, int attackCount, float[] sustain, int sustainCount, float[] release, int releaseCount)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        NativeApi.PSW_SetGeneratedTimbre(handle, enabled, attack, attackCount, sustain, sustainCount, release, releaseCount);
+#else
+        NativeApi.PS_SetGeneratedTimbre(handle, enabled, attack, attackCount, sustain, sustainCount, release, releaseCount);
+#endif
+    }
+
     private static void SetWavetable(int handle, float[] wavetable, int count)
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -312,6 +331,7 @@ public class ProceduralSynthVoice : IDisposable
         [DllImport(PluginName)] public static extern void PSW_SetFlags(int handle, int useWavetable, int useAudioClipADSR);
         [DllImport(PluginName)] public static extern void PSW_SetAdsrCurveModes(int handle, int attackUsesLogCurve, int decayUsesLogCurve, int sustainUsesLogCurve, int releaseUsesLogCurve);
         [DllImport(PluginName)] public static extern void PSW_SetHarmonics(int handle, float[] amplitudes, int count);
+        [DllImport(PluginName)] public static extern void PSW_SetGeneratedTimbre(int handle, int enabled, float[] attack, int attackCount, float[] sustain, int sustainCount, float[] release, int releaseCount);
         [DllImport(PluginName)] public static extern void PSW_SetWavetable(int handle, float[] wavetable, int count);
         [DllImport(PluginName)] public static extern void PSW_SetSampling(int handle, float[] samplingData, int sampleCount, int channels, int totalFrames, float baseFrequency, int startFrame, int endFrame);
         [DllImport(PluginName)] public static extern void PSW_SetADSRClip(int handle, float[] adsrData, int count);
@@ -329,6 +349,7 @@ public class ProceduralSynthVoice : IDisposable
         [DllImport(PluginName)] public static extern void PS_SetFlags(int handle, int useWavetable, int useAudioClipADSR);
         [DllImport(PluginName)] public static extern void PS_SetAdsrCurveModes(int handle, int attackUsesLogCurve, int decayUsesLogCurve, int sustainUsesLogCurve, int releaseUsesLogCurve);
         [DllImport(PluginName)] public static extern void PS_SetHarmonics(int handle, float[] amplitudes, int count);
+        [DllImport(PluginName)] public static extern void PS_SetGeneratedTimbre(int handle, int enabled, float[] attack, int attackCount, float[] sustain, int sustainCount, float[] release, int releaseCount);
         [DllImport(PluginName)] public static extern void PS_SetWavetable(int handle, float[] wavetable, int count);
         [DllImport(PluginName)] public static extern void PS_SetSampling(int handle, float[] samplingData, int sampleCount, int channels, int totalFrames, float baseFrequency, int startFrame, int endFrame);
         [DllImport(PluginName)] public static extern void PS_SetADSRClip(int handle, float[] adsrData, int count);

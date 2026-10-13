@@ -1,7 +1,13 @@
+// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial
+// Desarrollado por: Miguel Ángel Olivares Tenorio
+// Descripción: Motor DSP nativo para reproducir voces procedural con ADSR,
+// wavetables, síntesis aditiva y timbres generados por IA.
+
 #include <cmath>
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <initializer_list>
 
 namespace
 {
@@ -47,6 +53,10 @@ namespace
         int releaseStartTimeIndex = 0;
         float releaseStartLevel = 0.0f;
         std::vector<float> amplitudes;
+        bool useGeneratedMultiframeTimbre = false;
+        std::vector<float> generatedAttackHarmonics;
+        std::vector<float> generatedSustainHarmonics;
+        std::vector<float> generatedReleaseHarmonics;
         std::vector<float> wavetable;
         std::vector<float> samplingData;
         std::vector<float> adsrData;
@@ -54,6 +64,8 @@ namespace
 
     std::unordered_map<int, Voice> voices;
     int nextHandle = 1;
+
+    int ReleaseFrames(const Voice& voice);
 
     float Sine(float f, int t, float sampleRate)
     {
@@ -84,11 +96,55 @@ namespace
     float Additive(const Voice& voice, float f, int t)
     {
         if (voice.harmonicCount <= 0 || voice.amplitudes.empty()) return 0.0f;
-        int limit = std::min(voice.harmonicCount, static_cast<int>(voice.amplitudes.size()));
+        int nyquistLimit = f > 0.0f ? static_cast<int>((voice.sampleRate * 0.5f) / f) : 0;
+        int limit = std::min({ voice.harmonicCount, static_cast<int>(voice.amplitudes.size()), nyquistLimit });
         float sum = 0.0f;
+        float norm = 0.0f;
         for (int harmonic = 1; harmonic <= limit; ++harmonic)
-            sum += std::sin(2.0f * 3.14159265359f * harmonic * f * t / voice.sampleRate) * voice.amplitudes[harmonic - 1];
-        return sum / std::max(1, limit);
+        {
+            float amplitude = std::clamp(voice.amplitudes[harmonic - 1], 0.0f, 1.0f);
+            sum += std::sin(2.0f * 3.14159265359f * harmonic * f * t / voice.sampleRate) * amplitude;
+            norm += amplitude;
+        }
+        return norm > 0.0f ? std::clamp(sum / norm, -1.0f, 1.0f) : 0.0f;
+    }
+
+    float GeneratedMultiframe(const Voice& voice, float f, int t)
+    {
+        if (f <= 0.0f) return 0.0f;
+
+        float progress = 0.0f;
+        const std::vector<float>* from = &voice.generatedAttackHarmonics;
+        const std::vector<float>* to = &voice.generatedSustainHarmonics;
+
+        if (voice.releaseTriggered && t >= voice.releaseStartTimeIndex)
+        {
+            progress = static_cast<float>(t - voice.releaseStartTimeIndex) / std::max(1, ReleaseFrames(voice));
+            from = &voice.generatedSustainHarmonics;
+            to = &voice.generatedReleaseHarmonics;
+        }
+        else
+        {
+            int transitionFrames = std::max(1, static_cast<int>(((voice.attackMs + voice.decayMs) / 1000.0f) * voice.sampleRate));
+            progress = static_cast<float>(t) / transitionFrames;
+        }
+
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        int nyquistLimit = static_cast<int>((voice.sampleRate * 0.5f) / f);
+        int limit = std::min({ 16, nyquistLimit, static_cast<int>(from->size()), static_cast<int>(to->size()) });
+        float sum = 0.0f;
+        float norm = 0.0f;
+
+        for (int harmonic = 1; harmonic <= limit; ++harmonic)
+        {
+            float a = std::clamp((*from)[harmonic - 1], 0.0f, 1.0f);
+            float b = std::clamp((*to)[harmonic - 1], 0.0f, 1.0f);
+            float amplitude = a + ((b - a) * progress);
+            sum += std::sin(2.0f * 3.14159265359f * harmonic * f * t / voice.sampleRate) * amplitude;
+            norm += amplitude;
+        }
+
+        return norm > 0.0f ? std::clamp(sum / norm, -1.0f, 1.0f) : 0.0f;
     }
 
     float Fm(const Voice& voice, float carrierFrequency, int t)
@@ -207,6 +263,7 @@ namespace
     float Generate(Voice& voice, float frequency, int time, bool advanceSampling)
     {
         if (voice.waveform != 7 && frequency <= 0.0f) return 0.0f;
+        if (voice.useGeneratedMultiframeTimbre && voice.waveform == 11) return GeneratedMultiframe(voice, frequency, time);
         if (voice.useWavetable && !voice.wavetable.empty() && voice.waveform != 5) return Wavetable(voice, time, frequency);
 
         switch (voice.waveform)
@@ -290,6 +347,15 @@ extern "C"
         auto& voice = voices[handle];
         voice.harmonicCount = count;
         voice.amplitudes.assign(amplitudes, amplitudes + std::max(0, count));
+    }
+
+    void PS_SetGeneratedTimbre(int handle, int enabled, float* attack, int attackCount, float* sustain, int sustainCount, float* release, int releaseCount)
+    {
+        auto& voice = voices[handle];
+        voice.useGeneratedMultiframeTimbre = enabled != 0;
+        voice.generatedAttackHarmonics.assign(attack, attack + std::max(0, attackCount));
+        voice.generatedSustainHarmonics.assign(sustain, sustain + std::max(0, sustainCount));
+        voice.generatedReleaseHarmonics.assign(release, release + std::max(0, releaseCount));
     }
 
     void PS_SetWavetable(int handle, float* wavetable, int count)

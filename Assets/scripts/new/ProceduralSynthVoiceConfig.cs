@@ -1,5 +1,10 @@
 using UnityEngine;
 
+/// <summary>
+/// Proyecto: Síntesis de Audio Procedural con Inteligencia Artificial.
+/// Desarrollado por: Miguel Ángel Olivares Tenorio.
+/// Descripción: Contenedor de parámetros que Unity envía al motor External DSP, Native DSP y WebGL.
+/// </summary>
 [System.Serializable]
 public class ProceduralSynthVoiceConfig
 {
@@ -36,6 +41,10 @@ public class ProceduralSynthVoiceConfig
     public int samplingChannels;
     public int samplingTotalFrames;
     public float[] amplitudes = new float[0];
+    public bool useGeneratedMultiframeTimbre;
+    public float[] generatedAttackHarmonics = new float[0];
+    public float[] generatedSustainHarmonics = new float[0];
+    public float[] generatedReleaseHarmonics = new float[0];
     public float[] wavetable = new float[0];
     public float[] samplingData = new float[0];
     public float[] audioClipAdsrData = new float[0];
