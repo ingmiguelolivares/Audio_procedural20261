@@ -8,7 +8,7 @@ Este proyecto de Unity enseña síntesis procedural, wavetables, ADSR, antialias
 
 El proyecto conserva dos rutas de reproducción:
 
-1. **Legacy moderno**: usa `Assets/scripts/new/Osc.cs` con el backend `AudioEngineBackend.LegacyOnAudioFilterRead`. Esta ruta genera las muestras dentro de Unity.
+1. **Legacy moderno**: usa `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs` con el backend `AudioEngineBackend.LegacyOnAudioFilterRead`. Esta ruta genera las muestras dentro de Unity.
 2. **External DSP / WebGL**: usa `ProceduralSynthVoice`, `ManagedProceduralSynthVoice`, `ProceduralSynth.cpp` y `ProceduralSynth.jslib`. Esta ruta permite usar un backend DSP externo o el puente Web Audio de WebGL.
 
 Legacy no significa código descartable. En este proyecto representa una versión educativa y funcional del algoritmo que se mantiene para comparar enfoques de reproducción.

@@ -8,16 +8,16 @@ Este proyecto tiene **dos rutas de síntesis procedural en tiempo real**:
 
 1. **Versión legacy**
    - Genera el audio dentro de Unity usando `OnAudioFilterRead`.
-   - Vive principalmente en `Assets/scripts/OSC.cs` y en el modo legacy de `Assets/scripts/new/Osc.cs`.
+   - Vive principalmente en `Assets/scripts/OSC.cs` y en el modo legacy de `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`.
    - Es útil para editor y desktop, pero no es una buena base para WebGL.
 
 2. **Versión nueva con plugin**
    - Mantiene la lógica musical en C#, pero mueve el motor de síntesis a un backend externo.
    - En plataformas nativas usa `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`.
    - En WebGL usa `Assets/Plugins/WebGL/ProceduralSynth.jslib`.
-   - El puente desde Unity está en `Assets/scripts/new/ProceduralSynthVoice.cs`.
+   - El puente desde Unity está en `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`.
 
-La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar en ambos modos mediante `AudioEngineBackend`.
+La escena y scripts migrados usan `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`, que puede operar en ambos modos mediante `AudioEngineBackend`.
 
 ---
 
@@ -25,7 +25,7 @@ La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar 
 
 #### 1. Capa de control musical
 
-- `Assets/scripts/new/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
   - Expone parámetros del oscilador en el Inspector.
   - Convierte notas (`C`, `D`, `E`, etc.) a frecuencia con `KeyboardDown(...)`.
   - Mantiene estado musical: frecuencia, octava, ADSR, armónicos, LFO, detune, sampling.
@@ -39,7 +39,7 @@ La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar 
 
 #### 2. Capa de configuración de voz
 
-- `Assets/scripts/new/ProceduralSynthVoiceConfig.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoiceConfig.cs`
   - Es el contenedor de parámetros que serializa la intención sonora de `Osc`.
   - Incluye:
     - forma de onda,
@@ -55,7 +55,7 @@ La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar 
 
 #### 3. Capa de puente
 
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
   - Es la fachada única para el backend externo.
   - Responsabilidades:
     - crear y destruir voces,
@@ -69,7 +69,7 @@ La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar 
 
 #### 4. Fallback administrado
 
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
   - Replica la síntesis principal completamente en C#.
   - Se usa como respaldo cuando el backend nativo no existe o falla.
   - También sirve como referencia funcional del algoritmo implementado en C++ y JS.
@@ -81,8 +81,8 @@ La escena y scripts migrados usan `Assets/scripts/new/Osc.cs`, que puede operar 
 #### 1. Formas de onda básicas
 
 Implementadas en:
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`
 
@@ -114,7 +114,7 @@ Funcionamiento:
 #### 3. Wavetables
 
 Responsable principal:
-- `Assets/scripts/new/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
 
 Apoyo en runtime:
 - `ManagedProceduralSynthVoice.cs`
@@ -214,7 +214,7 @@ Funcionamiento:
 
 **Ruta**
 - `Assets/scripts/OSC.cs`
-- `Assets/scripts/new/Osc.cs` cuando `audioEngineBackend = LegacyOnAudioFilterRead`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs` cuando `audioEngineBackend = LegacyOnAudioFilterRead`
 
 **Cómo trabaja**
 - Unity llama `OnAudioFilterRead(float[] data, int channels)`.
@@ -235,8 +235,8 @@ Funcionamiento:
 #### Nueva versión con plugin externo
 
 **Ruta**
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`
 
@@ -284,10 +284,10 @@ Funcionamiento:
 
 ### Archivos clave
 
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
-- `Assets/scripts/new/ProceduralSynthVoiceConfig.cs`
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoiceConfig.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`
 
@@ -301,16 +301,16 @@ This project has **two real-time procedural synthesis paths**:
 
 1. **Legacy version**
    - Generates audio inside Unity through `OnAudioFilterRead`.
-   - Lives mainly in `Assets/scripts/OSC.cs` and in the legacy mode of `Assets/scripts/new/Osc.cs`.
+   - Lives mainly in `Assets/scripts/OSC.cs` and in the legacy mode of `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`.
    - Useful for editor and desktop, but not ideal as a WebGL foundation.
 
 2. **New plugin-based version**
    - Keeps musical/game logic in C#, but moves the synthesis engine to an external backend.
    - Uses `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp` on native platforms.
    - Uses `Assets/Plugins/WebGL/ProceduralSynth.jslib` on WebGL.
-   - The Unity bridge lives in `Assets/scripts/new/ProceduralSynthVoice.cs`.
+   - The Unity bridge lives in `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`.
 
-Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch between both paths using `AudioEngineBackend`.
+Migrated scenes and scripts use `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`, which can switch between both paths using `AudioEngineBackend`.
 
 ---
 
@@ -318,7 +318,7 @@ Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch be
 
 #### 1. Musical control layer
 
-- `Assets/scripts/new/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
   - Exposes oscillator parameters in the Inspector.
   - Converts notes (`C`, `D`, `E`, etc.) into frequency via `KeyboardDown(...)`.
   - Stores musical state: frequency, octave, ADSR, harmonics, LFO, detune, sampling.
@@ -332,7 +332,7 @@ Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch be
 
 #### 2. Voice configuration layer
 
-- `Assets/scripts/new/ProceduralSynthVoiceConfig.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoiceConfig.cs`
   - Parameter container that serializes the sonic intent from `Osc`.
   - Includes:
     - waveform,
@@ -348,7 +348,7 @@ Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch be
 
 #### 3. Bridge layer
 
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
   - Single façade for the external backend.
   - Responsibilities:
     - create and destroy voices,
@@ -362,7 +362,7 @@ Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch be
 
 #### 4. Managed fallback
 
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
   - Re-implements the main synthesis path entirely in C#.
   - Used as fallback when the native backend is unavailable.
   - Also acts as a functional reference for the C++ and JS implementations.
@@ -374,8 +374,8 @@ Migrated scenes and scripts use `Assets/scripts/new/Osc.cs`, which can switch be
 #### 1. Basic waveforms
 
 Implemented in:
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`
 
@@ -407,7 +407,7 @@ How it works:
 #### 3. Wavetables
 
 Main owner:
-- `Assets/scripts/new/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
 
 Runtime support:
 - `ManagedProceduralSynthVoice.cs`
@@ -507,7 +507,7 @@ How it works:
 
 **Path**
 - `Assets/scripts/OSC.cs`
-- `Assets/scripts/new/Osc.cs` when `audioEngineBackend = LegacyOnAudioFilterRead`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs` when `audioEngineBackend = LegacyOnAudioFilterRead`
 
 **How it works**
 - Unity calls `OnAudioFilterRead(float[] data, int channels)`.
@@ -528,8 +528,8 @@ How it works:
 #### New external plugin version
 
 **Path**
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`
 
@@ -577,9 +577,9 @@ How it works:
 
 ### Key files
 
-- `Assets/scripts/new/Osc.cs`
-- `Assets/scripts/new/ProceduralSynthVoice.cs`
-- `Assets/scripts/new/ProceduralSynthVoiceConfig.cs`
-- `Assets/scripts/new/ManagedProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoice.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ProceduralSynthVoiceConfig.cs`
+- `Assets/scripts/ProceduralAudio/NativeDSP/ManagedProceduralSynthVoice.cs`
 - `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp`
 - `Assets/Plugins/WebGL/ProceduralSynth.jslib`

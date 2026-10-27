@@ -261,8 +261,8 @@ Audio audible
     rows = [
         ("GroqTimbreGenerator", "Solicita JSON estructurado a Groq y construye un resultado de timbre.", "Assets/scripts/TimbreAI/GroqTimbreGenerator.cs"),
         ("TimbrePreset", "Modelo compartido de armónicos multiframe y ADSR.", "Assets/scripts/TimbreAI/TimbrePreset.cs"),
-        ("Polifonia", "Propaga el timbre generado a voces activas y futuras.", "Assets/scripts/new/Polifonia.cs"),
-        ("Osc", "Reproduce una voz y aplica wavetable, ADSR y backend seleccionado.", "Assets/scripts/new/Osc.cs"),
+        ("Polifonia", "Propaga el timbre generado a voces activas y futuras.", "Assets/scripts/ProceduralAudio/NativeDSP/Polifonia.cs"),
+        ("Osc", "Reproduce una voz y aplica wavetable, ADSR y backend seleccionado.", "Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs"),
         ("External DSP WebGL", "Reproduce las voces fuera de OnAudioFilterRead cuando corresponde.", "ProceduralSynthVoice y ProceduralSynth.jslib"),
     ]
     for component, responsibility, file_name in rows:

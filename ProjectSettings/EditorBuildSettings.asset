@@ -15,6 +15,6 @@ EditorBuildSettings:
     path: Assets/Scenes/SampleScene_NativeDSP.unity
     guid: 0c53bd235fc042188f80476ba1db768b
   - enabled: 1
-    path: Assets/Scenes/test_NativeDSP.unity
+    path: Assets/Scenes/Runtime/test_NativeDSP.unity
     guid: 95880a4976a9413e8ee09361d393eea0
   m_configObjects: {}
