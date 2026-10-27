@@ -177,6 +177,10 @@ def build_doc():
     p.add_run("Desarrollado por: Miguel Ángel Olivares Tenorio").bold = True
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    repo_run = p.add_run("Repositorio del proyecto: https://github.com/ingmiguelolivares/Audio_procedural20261")
+    repo_run.font.size = Pt(10)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Versión del documento: Octubre de 2026")
     doc.add_page_break()
 
@@ -476,6 +480,7 @@ si frecuencia del armonico > frecuencia maxima:
     add_bullets(
         doc,
         [
+            "Repositorio del proyecto: https://github.com/ingmiguelolivares/Audio_procedural20261",
             "GroqCloud Console API Keys: https://console.groq.com/keys",
             "Groq Projects documentation: https://console.groq.com/docs/projects",
             "Groq Quickstart: https://console.groq.com/docs/quickstart",
