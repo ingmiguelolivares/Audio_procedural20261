@@ -1,21 +1,108 @@
-# Síntesis de Audio Procedural con Inteligencia Artificial
+# Sistema de Síntesis de Audio Procedural en Tiempo Real
 
 Desarrollado por: Miguel Ángel Olivares Tenorio
 
-Este proyecto de Unity enseña síntesis procedural, wavetables, ADSR, antialiasing y generación asistida de parámetros mediante GroqCloud. El objetivo no es pedirle a la IA que genere audio terminado, sino usarla para obtener una descripción estructurada del sonido y reconstruir localmente el timbre dentro del sintetizador.
+Este proyecto de Unity implementa un sistema de síntesis de audio procedural en
+tiempo real. Genera las muestras localmente durante la ejecución mediante
+osciladores, síntesis aditiva, FM, wavetables, sampling, ADSR, LFO, detune y
+limitación de armónicos por Nyquist.
+
+La generación asistida por IA es un **módulo opcional**: puede proponer los
+armónicos y la envolvente de un timbre a partir de una descripción textual, pero
+no es necesaria para que el sintetizador funcione ni genera el audio final. El
+audio siempre se sintetiza localmente en Unity, C++ o WebGL.
+
+Incluye un paquete reutilizable para importar el sistema en otro proyecto:
+[`ProceduralAudioSystem_Legacy_and_NativeDSP.unitypackage`](Exports/ProceduralAudioSystem_Legacy_and_NativeDSP.unitypackage).
+
+## Inicio rápido: importar en un proyecto nuevo
+
+1. Cree o abra un proyecto con **Unity 6** y los paquetes `Unity UI` y
+   `TextMesh Pro` habilitados.
+2. Descargue este repositorio y, desde el proyecto nuevo, seleccione
+   **Assets > Import Package > Custom Package…**.
+3. Seleccione `ProceduralAudioSystem_Legacy_and_NativeDSP.unitypackage` y deje
+   todos los elementos marcados durante la importación.
+4. Espere a que Unity termine de importar y compilar los scripts. Si Unity pide
+   importar recursos esenciales de TextMesh Pro, acepte.
+5. Abra una de estas escenas de demostración:
+
+   - `Assets/Scenes/SampleScene.unity` para el sistema **Legacy histórico**.
+   - `Assets/Scenes/Runtime/test_NativeDSP.unity` para la ruta **Native DSP**.
+
+6. Pulse Play y pruebe primero una forma Sine y después los controles de ADSR,
+   armónicos, FM, sampling y wavetables.
+
+El paquete incluye scripts, prefabs, escenas de ejemplo, wavetables, clips de
+audio, soporte MIDI, DryWetMIDI, recursos de UI, el puente de WebGL y el código
+del backend. No incluye paquetes visuales ajenos al sintetizador.
+
+> **Importante:** `MidiPlayerDrywet` lee archivos por la ruta
+> `Assets/midifiles/`; mantenga ese directorio después de importar. El ejemplo
+> disponible se llama `miditest.mid`, por lo que una escena que solicite
+> `example.mid` debe actualizarse en el Inspector.
 
 ## Implementaciones de síntesis
 
-El proyecto conserva dos rutas de reproducción:
+El proyecto conserva dos sistemas comparables. Ambos generan el audio en tiempo
+real y comparten conceptos musicales; lo que cambia es dónde se calculan las
+muestras.
 
-1. **Legacy moderno**: usa `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs` con el backend `AudioEngineBackend.LegacyOnAudioFilterRead`. Esta ruta genera las muestras dentro de Unity.
-2. **External DSP / WebGL**: usa `ProceduralSynthVoice`, `ManagedProceduralSynthVoice`, `ProceduralSynth.cpp` y `ProceduralSynth.jslib`. Esta ruta permite usar un backend DSP externo o el puente Web Audio de WebGL.
+| Sistema | Punto de entrada | Cómo genera audio | Escena de ejemplo |
+| --- | --- | --- | --- |
+| **Legacy** | `Assets/scripts/OSC.cs` | `OnAudioFilterRead` dentro de Unity/C#. | `Assets/Scenes/SampleScene.unity` |
+| **Native DSP** | `Assets/scripts/ProceduralAudio/NativeDSP/Osc.cs` | Usa `ProceduralSynthVoice`: plugin C++ en macOS, `.jslib` en WebGL, o fallback C# si el plugin no está disponible. | `Assets/Scenes/Runtime/test_NativeDSP.unity` |
 
-Legacy no significa código descartable. En este proyecto representa una versión educativa y funcional del algoritmo que se mantiene para comparar enfoques de reproducción.
+La clase `Osc.cs` dentro de `NativeDSP` también permite seleccionar
+`AudioEngineBackend.LegacyOnAudioFilterRead`. Es una versión migrada que permite
+comparar el renderizado gestionado con `ExternalProceduralDSP` usando la misma
+interfaz y parámetros.
 
-## Núcleo compartido
+### Sistema Legacy
+
+`OSC.cs` implementa osciladores, síntesis aditiva, ADSR y control desde la UI
+con C#. Es la ruta más directa para estudiar el flujo muestra a muestra de Unity:
+la propia función de audio recibe un buffer y escribe las muestras generadas.
+No requiere una librería nativa externa.
+
+Úselo como referencia didáctica, para prototipos y para contrastar el resultado
+con el backend externo. La escena `SampleScene` contiene los componentes y
+prefabs históricos que lo acompañan.
+
+### Sistema Native DSP
+
+La implementación migrada se divide en capas:
+
+```text
+Polifonia / UI / MIDI
+        -> Osc
+        -> ProceduralSynthVoice
+        -> C++ nativo (macOS) | .jslib (WebGL) | ManagedProceduralSynthVoice
+        -> AudioSource de Unity
+```
+
+- `Polifonia.cs` conserva los ajustes globales y crea voces desde
+  `OSC_Native.prefab`.
+- `Osc.cs` convierte notas y parámetros de UI en una
+  `ProceduralSynthVoiceConfig`.
+- `ProceduralSynthVoice.cs` intenta el backend apropiado y cambia al fallback
+  gestionado si no puede inicializar un plugin.
+- `ManagedProceduralSynthVoice.cs` implementa en C# una versión funcional del
+  motor para que el sistema siga sonando en plataformas sin binario nativo.
+- `Assets/Plugins/ProceduralSynth/Source/ProceduralSynth.cpp` contiene el motor
+  C++; `libProceduralSynth.dylib` es el binario incluido para macOS Apple
+  Silicon; `Assets/Plugins/WebGL/ProceduralSynth.jslib` es el puente WebGL.
+
+Para Windows, Linux o una Mac Intel el paquete conserva el fallback C# y el
+código fuente C++, pero no incluye un binario precompilado específico. Compile
+el plugin para ese destino y colóquelo en `Assets/Plugins/ProceduralSynth/` si
+quiere ejecutar el backend nativo allí.
+
+## Núcleo de síntesis compartido
 
 Los datos comunes del timbre viven en `Assets/scripts/TimbreAI/TimbrePreset.cs`.
+El nombre de la carpeta refleja el origen del módulo, pero el preset también se
+puede crear y editar por completo sin IA desde el Inspector o el código.
 
 Un `TimbrePreset` contiene:
 
@@ -31,13 +118,16 @@ Los motores pueden reproducir el mismo preset con mecanismos internos distintos.
 
 ## Wavetables multiframe
 
-Un timbre generado por IA se representa con tres estados espectrales:
+Un timbre multiframe se representa con tres estados espectrales:
 
 - **Attack**: armónicos iniciales del sonido.
 - **Sustain**: cuerpo estable del timbre.
 - **Release**: color del sonido al liberar la nota.
 
-Durante una nota, el sintetizador interpola suavemente de Attack a Sustain. Cuando ocurre `NoteOff`, interpola de Sustain a Release. Esta transición tímbrica es independiente del ADSR de amplitud.
+Durante una nota, el sintetizador interpola suavemente de Attack a Sustain.
+Cuando ocurre `NoteOff`, interpola de Sustain a Release. Esta transición tímbrica
+es independiente del ADSR de amplitud y se puede configurar manualmente o con
+el módulo opcional de IA.
 
 ## Antialiasing
 
@@ -61,9 +151,11 @@ El ADSR se interpreta de forma coherente:
 
 El código conserva campos heredados en milisegundos para compatibilidad con la UI y escenas existentes, pero el preset compartido usa `AdsrSettings` como representación clara para estudiantes.
 
-## Integración con Groq
+## Módulo opcional: diseño de timbre asistido por IA
 
-`Assets/scripts/TimbreAI/GroqTimbreGenerator.cs` llama a GroqCloud para convertir una descripción textual en JSON estructurado.
+`Assets/scripts/TimbreAI/GroqTimbreGenerator.cs` puede llamar a GroqCloud para
+convertir una descripción textual en parámetros de timbre. Es una herramienta
+de diseño de presets, no un requisito del motor de síntesis.
 
 El JSON solicita:
 
@@ -74,9 +166,11 @@ El JSON solicita:
 - 16 armónicos de Release.
 - ADSR.
 
-GroqCloud no genera muestras PCM ni archivos de audio. Unity genera localmente la wavetable y la reproducción final.
+GroqCloud no genera muestras PCM ni archivos de audio. Unity genera localmente
+la wavetable y la reproducción final. El sistema funciona sin API key: se pueden
+usar las formas de onda, controles de UI y presets locales.
 
-## API key por estudiante
+### API key por estudiante
 
 Cada estudiante debe usar su propia API key de Groq.
 
@@ -93,7 +187,7 @@ No se deben guardar claves en:
 
 Importante: una API key escrita en una aplicación WebGL corre del lado del cliente y no puede considerarse secreta. Para producción se recomienda un intermediario seguro en servidor. Para laboratorio educativo, cada estudiante usa su propia clave y puede eliminarla al terminar.
 
-## Flujo de timbre generado
+### Flujo opcional de timbre asistido
 
 ```text
 Prompt
@@ -102,7 +196,7 @@ Prompt
   -> TimbrePreset + wavetable + ADSR
   -> Polifonia
   -> voces Osc activas y futuras
-  -> Legacy moderno o External DSP/WebGL
+  -> Legacy o Native DSP
   -> audio
 ```
 
@@ -110,14 +204,15 @@ El enum `WaveFormType.Gemini` se conserva como nombre heredado del modo de wavet
 
 ## Pruebas sugeridas
 
-1. Generar un timbre local con `Generate Local Test Timbre` sin API.
-2. Reproducir una nota en Legacy moderno.
-3. Reproducir la misma nota en External DSP.
-4. Cambiar a una forma normal como Sine y comprobar que sigue sonando.
-5. Volver al modo `Gemini` y comprobar que la wavetable generada no se reemplaza por ceros.
-6. Probar notas graves y agudas para escuchar la limitación de armónicos.
-7. Introducir una API key personal y generar un timbre desde prompt.
-8. Compilar WebGL y verificar el desbloqueo de audio del navegador con interacción del usuario.
+1. Reproducir una nota Sine en Legacy y después en Native DSP.
+2. Cambiar la forma de onda, armónicos, ADSR, detune, LFO y parámetros FM.
+3. Activar una wavetable o sampling y verificar el cambio de timbre.
+4. Probar notas graves y agudas para escuchar la limitación de armónicos por
+   Nyquist.
+5. Compilar WebGL y verificar el desbloqueo de audio del navegador tras una
+   interacción del usuario.
+6. Opcionalmente, generar un timbre local de prueba o usar una API key personal
+   para solicitar parámetros de timbre por texto.
 
 ## Limitaciones conocidas
 
